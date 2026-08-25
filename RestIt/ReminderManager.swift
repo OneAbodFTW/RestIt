@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 @MainActor
@@ -6,10 +7,15 @@ final class ReminderManager: ObservableObject {
         static let eyeRemindersEnabled = "eyeRemindersEnabled"
         static let eyeIntervalMinutes = "eyeIntervalMinutes"
         static let eyeBreakSeconds = "eyeBreakSeconds"
-        static let waterRemindersEnabled = "waterRemindersEnabled"
-        static let waterIntervalMinutes = "waterIntervalMinutes"
         static let audioCuesEnabled = "audioCuesEnabled"
         static let audioCueVolume = "audioCueVolume"
+        static let trackingDayStart = "trackingDayStart"
+        static let restsToday = "restsToday"
+        static let workedSecondsToday = "workedSecondsToday"
+        static let selectedWaterHabitID = "selectedWaterHabitID"
+        static let selectedEyeDropsHabitIDs = "selectedEyeDropsHabitIDs"
+        static let selectedEyeDropsHabitID = "selectedEyeDropsHabitID"
+        static let habitCategoryAssignments = "habitCategoryAssignments"
     }
 
     @Published var eyeRemindersEnabled: Bool {
@@ -27,88 +33,107 @@ final class ReminderManager: ObservableObject {
     }
 
     @Published var eyeBreakSeconds: Int {
-        didSet {
-            defaults.set(eyeBreakSeconds, forKey: DefaultsKey.eyeBreakSeconds)
-        }
-    }
-
-    @Published var waterRemindersEnabled: Bool {
-        didSet {
-            defaults.set(waterRemindersEnabled, forKey: DefaultsKey.waterRemindersEnabled)
-            if hasStarted { resetWaterSchedule() }
-        }
-    }
-
-    @Published var waterIntervalMinutes: Int {
-        didSet {
-            defaults.set(waterIntervalMinutes, forKey: DefaultsKey.waterIntervalMinutes)
-            if hasStarted { resetWaterSchedule() }
-        }
+        didSet { defaults.set(eyeBreakSeconds, forKey: DefaultsKey.eyeBreakSeconds) }
     }
 
     @Published var audioCuesEnabled: Bool {
-        didSet {
-            defaults.set(audioCuesEnabled, forKey: DefaultsKey.audioCuesEnabled)
-        }
+        didSet { defaults.set(audioCuesEnabled, forKey: DefaultsKey.audioCuesEnabled) }
     }
 
     @Published var audioCueVolume: Double {
+        didSet { defaults.set(audioCueVolume, forKey: DefaultsKey.audioCueVolume) }
+    }
+
+    @Published var selectedWaterHabitID: String {
+        didSet { defaults.set(selectedWaterHabitID, forKey: DefaultsKey.selectedWaterHabitID) }
+    }
+
+    @Published private(set) var selectedEyeDropsHabitIDs: Set<String> {
         didSet {
-            defaults.set(audioCueVolume, forKey: DefaultsKey.audioCueVolume)
+            defaults.set(selectedEyeDropsHabitIDs.sorted(), forKey: DefaultsKey.selectedEyeDropsHabitIDs)
+        }
+    }
+
+    @Published private(set) var habitCategoryAssignments: [String: HabitConsistencyCategory] {
+        didSet {
+            defaults.set(
+                habitCategoryAssignments.mapValues(\.rawValue),
+                forKey: DefaultsKey.habitCategoryAssignments
+            )
         }
     }
 
     @Published private(set) var now = Date()
     @Published private(set) var nextEyeBreak = Date()
-    @Published private(set) var nextWaterReminder = Date()
     @Published private(set) var pausedUntil: Date?
     @Published private(set) var isEyeBreakActive = false
-    @Published private(set) var lastWaterReminder: Date?
+    @Published private(set) var restsToday = 0
+    @Published private(set) var workedSecondsToday: TimeInterval = 0
+    @Published private(set) var tickTickHabits: [TickTickHabit] = []
+    @Published private(set) var isTickTickConnected = false
+    @Published private(set) var isTickTickSyncing = false
+    @Published private(set) var checkingHabitIDs: Set<String> = []
+    @Published private(set) var tickTickStatusMessage: String?
+    @Published private(set) var tickTickStatusIsError = false
 
     private let defaults: UserDefaults
-    private let notificationService: NotificationService
     private let overlayController: BreakOverlayController
     private let audioCuePlayer = AudioCuePlayer()
     private var timer: Timer?
     private var hasStarted = false
+    private var trackingDayStart = Calendar.current.startOfDay(for: Date())
+    private var lastTickDate = Date()
+    private var lastStatsPersistDate = Date.distantPast
+    private var lastTickTickSyncDate = Date.distantPast
 
-    init(
-        defaults: UserDefaults = .standard,
-        notificationService: NotificationService,
-        overlayController: BreakOverlayController
-    ) {
+    init(defaults: UserDefaults = .standard, overlayController: BreakOverlayController) {
         self.defaults = defaults
-        self.notificationService = notificationService
         self.overlayController = overlayController
 
         defaults.register(defaults: [
             DefaultsKey.eyeRemindersEnabled: true,
             DefaultsKey.eyeIntervalMinutes: 20,
             DefaultsKey.eyeBreakSeconds: 20,
-            DefaultsKey.waterRemindersEnabled: true,
-            DefaultsKey.waterIntervalMinutes: 60,
             DefaultsKey.audioCuesEnabled: true,
-            DefaultsKey.audioCueVolume: 0.55
+            DefaultsKey.audioCueVolume: 0.55,
+            DefaultsKey.trackingDayStart: 0.0,
+            DefaultsKey.restsToday: 0,
+            DefaultsKey.workedSecondsToday: 0.0,
+            DefaultsKey.selectedWaterHabitID: "",
+            DefaultsKey.selectedEyeDropsHabitIDs: [String](),
+            DefaultsKey.selectedEyeDropsHabitID: "",
+            DefaultsKey.habitCategoryAssignments: [String: String]()
         ])
 
         eyeRemindersEnabled = defaults.bool(forKey: DefaultsKey.eyeRemindersEnabled)
         eyeIntervalMinutes = defaults.integer(forKey: DefaultsKey.eyeIntervalMinutes)
         eyeBreakSeconds = defaults.integer(forKey: DefaultsKey.eyeBreakSeconds)
-        waterRemindersEnabled = defaults.bool(forKey: DefaultsKey.waterRemindersEnabled)
-        waterIntervalMinutes = defaults.integer(forKey: DefaultsKey.waterIntervalMinutes)
         audioCuesEnabled = defaults.bool(forKey: DefaultsKey.audioCuesEnabled)
         audioCueVolume = defaults.double(forKey: DefaultsKey.audioCueVolume)
+        selectedWaterHabitID = defaults.string(forKey: DefaultsKey.selectedWaterHabitID) ?? ""
+        let savedEyeDropIDs = defaults.stringArray(forKey: DefaultsKey.selectedEyeDropsHabitIDs) ?? []
+        let legacyEyeDropID = defaults.string(forKey: DefaultsKey.selectedEyeDropsHabitID) ?? ""
+        selectedEyeDropsHabitIDs = Set(
+            savedEyeDropIDs.isEmpty && !legacyEyeDropID.isEmpty ? [legacyEyeDropID] : savedEyeDropIDs
+        )
+        let savedAssignments = defaults.dictionary(forKey: DefaultsKey.habitCategoryAssignments) as? [String: String] ?? [:]
+        habitCategoryAssignments = savedAssignments.compactMapValues(HabitConsistencyCategory.init(rawValue:))
+        defaults.set(selectedEyeDropsHabitIDs.sorted(), forKey: DefaultsKey.selectedEyeDropsHabitIDs)
+        defaults.removeObject(forKey: DefaultsKey.selectedEyeDropsHabitID)
+        isTickTickConnected = ((try? TickTickTokenStore.load()) ?? nil) != nil
 
         let start = Date()
         nextEyeBreak = start.addingTimeInterval(TimeInterval(eyeIntervalMinutes * 60))
-        nextWaterReminder = start.addingTimeInterval(TimeInterval(waterIntervalMinutes * 60))
-
+        lastTickDate = start
+        restoreDailyStats(at: start)
         startTimers()
+
+        if isTickTickConnected {
+            Task { await syncTickTickHabits(showSuccess: false) }
+        }
     }
 
-    deinit {
-        timer?.invalidate()
-    }
+    deinit { timer?.invalidate() }
 
     var isPaused: Bool {
         guard let pausedUntil else { return false }
@@ -124,12 +149,13 @@ final class ReminderManager: ObservableObject {
         return Self.durationText(from: now, to: nextEyeBreak)
     }
 
-    var nextWaterReminderText: String {
-        guard waterRemindersEnabled else { return "Off" }
-        if let pausedUntil, pausedUntil > now {
-            return "Paused"
-        }
-        return Self.durationText(from: now, to: nextWaterReminder)
+    var workedTimeText: String {
+        let totalMinutes = Int(workedSecondsToday) / 60
+        if totalMinutes < 60 { return "\(totalMinutes)m" }
+
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        return minutes == 0 ? "\(hours)h" : "\(hours)h \(minutes)m"
     }
 
     var menuBarTitle: String {
@@ -148,6 +174,25 @@ final class ReminderManager: ObservableObject {
         return "eye.fill"
     }
 
+    var incompleteTickTickHabits: [TickTickHabit] {
+        tickTickHabits.filter { $0.isScheduledToday && !$0.isCompletedToday }
+    }
+
+    var selectedWaterHabit: TickTickHabit? {
+        tickTickHabits.first { $0.id == selectedWaterHabitID }
+    }
+
+    var selectedEyeDropsHabits: [TickTickHabit] {
+        tickTickHabits.filter { selectedEyeDropsHabitIDs.contains($0.id) }
+    }
+
+    var habitConsistencySummary: HabitConsistencySummary {
+        HabitConsistencySummary.calculate(
+            habits: tickTickHabits,
+            assignments: habitCategoryAssignments
+        )
+    }
+
     func startEyeBreakNow() {
         guard !isEyeBreakActive else { return }
         beginEyeBreak()
@@ -158,21 +203,10 @@ final class ReminderManager: ObservableObject {
         nextEyeBreak = Date().addingTimeInterval(eyeInterval)
     }
 
-    func recordWater() {
-        lastWaterReminder = nil
-        nextWaterReminder = Date().addingTimeInterval(waterInterval)
-    }
-
-    func snoozeWater(minutes: Int = 10) {
-        lastWaterReminder = nil
-        nextWaterReminder = Date().addingTimeInterval(TimeInterval(minutes * 60))
-    }
-
     func pause(for minutes: Int) {
         let resumeDate = Date().addingTimeInterval(TimeInterval(minutes * 60))
         pausedUntil = resumeDate
         nextEyeBreak = resumeDate.addingTimeInterval(eyeInterval)
-        nextWaterReminder = resumeDate.addingTimeInterval(waterInterval)
 
         if isEyeBreakActive {
             overlayController.dismiss()
@@ -182,11 +216,7 @@ final class ReminderManager: ObservableObject {
 
     func resume() {
         pausedUntil = nil
-        resetSchedules()
-    }
-
-    func requestNotificationPermission() {
-        notificationService.requestAuthorization()
+        resetEyeSchedule()
     }
 
     func previewAudioCue() {
@@ -194,22 +224,115 @@ final class ReminderManager: ObservableObject {
         audioCuePlayer.play(.eyeBreakStarted, volume: audioCueVolume)
     }
 
+    func connectTickTick(token: String) async {
+        let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanToken.isEmpty else {
+            setTickTickStatus("Paste an API token first.", isError: true)
+            return
+        }
+
+        isTickTickSyncing = true
+        defer { isTickTickSyncing = false }
+        do {
+            let habits = try await TickTickHabitService(token: cleanToken).fetchHabits()
+            try TickTickTokenStore.save(cleanToken)
+            isTickTickConnected = true
+            applyTickTickHabits(habits)
+            lastTickTickSyncDate = Date()
+            setTickTickStatus("Connected. Loaded \(habits.count) habit\(habits.count == 1 ? "" : "s").", isError: false)
+        } catch {
+            setTickTickStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    func disconnectTickTick() {
+        do {
+            try TickTickTokenStore.delete()
+            isTickTickConnected = false
+            tickTickHabits = []
+            checkingHabitIDs = []
+            overlayController.updateHabits([])
+            setTickTickStatus("Disconnected from TickTick.", isError: false)
+        } catch {
+            setTickTickStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    func syncTickTickHabits(showSuccess: Bool = true) async {
+        guard !isTickTickSyncing else { return }
+        guard let token = try? TickTickTokenStore.load() else {
+            isTickTickConnected = false
+            if showSuccess { setTickTickStatus("Connect TickTick first.", isError: true) }
+            return
+        }
+
+        isTickTickSyncing = true
+        lastTickTickSyncDate = Date()
+        defer { isTickTickSyncing = false }
+        do {
+            let habits = try await TickTickHabitService(token: token).fetchHabits()
+            isTickTickConnected = true
+            applyTickTickHabits(habits)
+            if showSuccess {
+                setTickTickStatus("Synced \(habits.count) habit\(habits.count == 1 ? "" : "s").", isError: false)
+            }
+        } catch {
+            setTickTickStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    func logWaterHabit() {
+        guard let habit = selectedWaterHabit else {
+            setTickTickStatus("Choose a water habit in Settings first.", isError: true)
+            return
+        }
+        checkIn(habit, complete: false)
+    }
+
+    func toggleEyeDropsHabit(_ habit: TickTickHabit) {
+        if selectedEyeDropsHabitIDs.contains(habit.id) {
+            selectedEyeDropsHabitIDs.remove(habit.id)
+        } else {
+            selectedEyeDropsHabitIDs.insert(habit.id)
+        }
+    }
+
+    func isEyeDropsHabitSelected(_ habit: TickTickHabit) -> Bool {
+        selectedEyeDropsHabitIDs.contains(habit.id)
+    }
+
+    func category(for habit: TickTickHabit) -> HabitConsistencyCategory? {
+        habitCategoryAssignments[habit.id]
+    }
+
+    func setCategory(_ category: HabitConsistencyCategory?, for habit: TickTickHabit) {
+        if let category {
+            habitCategoryAssignments[habit.id] = category
+        } else {
+            habitCategoryAssignments.removeValue(forKey: habit.id)
+        }
+    }
+
+    func checkEyeDropsHabit(_ habit: TickTickHabit) {
+        guard selectedEyeDropsHabitIDs.contains(habit.id) else {
+            setTickTickStatus("Link that eye-drop habit in Settings first.", isError: true)
+            return
+        }
+        checkIn(habit, complete: true)
+    }
+
+    func isCheckingHabit(_ habit: TickTickHabit) -> Bool {
+        checkingHabitIDs.contains(habit.id)
+    }
+
     private var eyeInterval: TimeInterval {
         TimeInterval(eyeIntervalMinutes * 60)
     }
 
-    private var waterInterval: TimeInterval {
-        TimeInterval(waterIntervalMinutes * 60)
-    }
-
     private func startTimers() {
         hasStarted = true
-        notificationService.requestAuthorization()
-
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.tick()
-            }
+            Task { @MainActor in self?.tick() }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -218,40 +341,95 @@ final class ReminderManager: ObservableObject {
 
     private func tick() {
         let currentDate = Date()
+        let previousTickDate = lastTickDate
+        let elapsed = min(max(0, currentDate.timeIntervalSince(previousTickDate)), 5)
+        let wasPaused = pausedUntil.map { $0 > previousTickDate } ?? false
+
+        lastTickDate = currentDate
         now = currentDate
+        rollDailyStatsIfNeeded(at: currentDate)
+
+        if !wasPaused, !isEyeBreakActive { workedSecondsToday += elapsed }
+        if currentDate.timeIntervalSince(lastStatsPersistDate) >= 15 {
+            persistDailyStats()
+            lastStatsPersistDate = currentDate
+        }
+        if isTickTickConnected,
+           !isTickTickSyncing,
+           currentDate.timeIntervalSince(lastTickTickSyncDate) >= 300 {
+            lastTickTickSyncDate = currentDate
+            Task { await syncTickTickHabits(showSuccess: false) }
+        }
 
         if let pausedUntil {
             if pausedUntil > currentDate { return }
             self.pausedUntil = nil
-            resetSchedules(from: currentDate)
+            resetEyeSchedule(from: currentDate)
             return
         }
 
         if eyeRemindersEnabled, !isEyeBreakActive, currentDate >= nextEyeBreak {
             beginEyeBreak()
         }
-
-        if waterRemindersEnabled, currentDate >= nextWaterReminder {
-            triggerWaterReminder(at: currentDate)
-        }
     }
 
     private func beginEyeBreak() {
         isEyeBreakActive = true
         playAudioCue(.eyeBreakStarted)
-        overlayController.show(duration: eyeBreakSeconds) { [weak self] in
-            guard let self else { return }
-            self.isEyeBreakActive = false
-            self.nextEyeBreak = Date().addingTimeInterval(self.eyeInterval)
-            self.playAudioCue(.eyeBreakFinished)
+
+        if isTickTickConnected {
+            Task { await syncTickTickHabits(showSuccess: false) }
+        }
+
+        overlayController.show(
+            duration: eyeBreakSeconds,
+            incompleteHabits: incompleteTickTickHabits,
+            onHabitCompleted: { [weak self] habit in self?.checkIn(habit, complete: true) },
+            onFinished: { [weak self] completed in
+                guard let self else { return }
+                self.isEyeBreakActive = false
+                self.nextEyeBreak = Date().addingTimeInterval(self.eyeInterval)
+                if completed {
+                    self.rollDailyStatsIfNeeded(at: Date())
+                    self.restsToday += 1
+                    self.persistDailyStats()
+                }
+                self.playAudioCue(.eyeBreakFinished)
+            }
+        )
+    }
+
+    private func checkIn(_ habit: TickTickHabit, complete: Bool) {
+        guard !checkingHabitIDs.contains(habit.id) else { return }
+        guard let token = try? TickTickTokenStore.load() else {
+            setTickTickStatus("Connect TickTick first.", isError: true)
+            return
+        }
+
+        checkingHabitIDs.insert(habit.id)
+        Task {
+            defer { checkingHabitIDs.remove(habit.id) }
+            do {
+                let value = try await TickTickHabitService(token: token).checkIn(habit, complete: complete)
+                guard let index = tickTickHabits.firstIndex(where: { $0.id == habit.id }) else { return }
+                tickTickHabits[index].applyCurrentValue(value)
+                overlayController.updateHabits(incompleteTickTickHabits)
+                setTickTickStatus("Logged \(habit.name) in TickTick.", isError: false)
+            } catch {
+                overlayController.updateHabits(incompleteTickTickHabits)
+                setTickTickStatus(error.localizedDescription, isError: true)
+            }
         }
     }
 
-    private func triggerWaterReminder(at date: Date) {
-        lastWaterReminder = date
-        nextWaterReminder = date.addingTimeInterval(waterInterval)
-        playAudioCue(.waterReminder)
-        notificationService.sendWaterReminder()
+    private func applyTickTickHabits(_ habits: [TickTickHabit]) {
+        tickTickHabits = habits
+        overlayController.updateHabits(incompleteTickTickHabits)
+    }
+
+    private func setTickTickStatus(_ message: String, isError: Bool) {
+        tickTickStatusMessage = message
+        tickTickStatusIsError = isError
     }
 
     private func playAudioCue(_ cue: AudioCuePlayer.Cue) {
@@ -259,23 +437,43 @@ final class ReminderManager: ObservableObject {
         audioCuePlayer.play(cue, volume: audioCueVolume)
     }
 
-    private func resetEyeSchedule() {
-        nextEyeBreak = Date().addingTimeInterval(eyeInterval)
+    private func resetEyeSchedule(from date: Date = Date()) {
+        nextEyeBreak = date.addingTimeInterval(eyeInterval)
         if !eyeRemindersEnabled, isEyeBreakActive {
             overlayController.dismiss()
             isEyeBreakActive = false
         }
     }
 
-    private func resetWaterSchedule() {
-        lastWaterReminder = nil
-        nextWaterReminder = Date().addingTimeInterval(waterInterval)
+    private func restoreDailyStats(at date: Date) {
+        let savedTimestamp = defaults.double(forKey: DefaultsKey.trackingDayStart)
+        let savedDate = Date(timeIntervalSince1970: savedTimestamp)
+
+        guard savedTimestamp > 0, Calendar.current.isDate(savedDate, inSameDayAs: date) else {
+            trackingDayStart = Calendar.current.startOfDay(for: date)
+            persistDailyStats()
+            return
+        }
+
+        trackingDayStart = Calendar.current.startOfDay(for: savedDate)
+        restsToday = defaults.integer(forKey: DefaultsKey.restsToday)
+        workedSecondsToday = defaults.double(forKey: DefaultsKey.workedSecondsToday)
     }
 
-    private func resetSchedules(from date: Date = Date()) {
-        nextEyeBreak = date.addingTimeInterval(eyeInterval)
-        nextWaterReminder = date.addingTimeInterval(waterInterval)
-        lastWaterReminder = nil
+    private func rollDailyStatsIfNeeded(at date: Date) {
+        guard !Calendar.current.isDate(trackingDayStart, inSameDayAs: date) else { return }
+
+        trackingDayStart = Calendar.current.startOfDay(for: date)
+        restsToday = 0
+        workedSecondsToday = 0
+        lastTickTickSyncDate = .distantPast
+        persistDailyStats()
+    }
+
+    private func persistDailyStats() {
+        defaults.set(trackingDayStart.timeIntervalSince1970, forKey: DefaultsKey.trackingDayStart)
+        defaults.set(restsToday, forKey: DefaultsKey.restsToday)
+        defaults.set(workedSecondsToday, forKey: DefaultsKey.workedSecondsToday)
     }
 
     private static func durationText(from start: Date, to end: Date) -> String {

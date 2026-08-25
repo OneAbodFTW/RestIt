@@ -5,13 +5,11 @@ final class AudioCuePlayer {
     enum Cue {
         case eyeBreakStarted
         case eyeBreakFinished
-        case waterReminder
 
         var soundName: NSSound.Name {
             switch self {
             case .eyeBreakStarted: return NSSound.Name("Glass")
             case .eyeBreakFinished: return NSSound.Name("Tink")
-            case .waterReminder: return NSSound.Name("Bottle")
             }
         }
     }
@@ -31,4 +29,3 @@ final class AudioCuePlayer {
         sound.play()
     }
 }
-

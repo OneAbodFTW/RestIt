@@ -3,29 +3,29 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject private var reminders: ReminderManager
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            schedule
+            nextBreak
+            Divider()
+            consistencyDashboard
+            Divider()
+            todayDashboard
             Divider()
             controls
         }
-        .frame(width: 330)
+        .frame(width: 350)
     }
 
     private var header: some View {
         HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.14))
-                Image(systemName: "eye.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-            }
-            .frame(width: 46, height: 46)
+            Image(systemName: "eye.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 42, height: 42)
+                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 11))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("RestIt")
@@ -49,39 +49,198 @@ struct MenuBarView: View {
         .padding(16)
     }
 
-    private var schedule: some View {
-        VStack(spacing: 12) {
-            ReminderRow(
-                icon: "eye",
-                color: .mint,
-                title: "Next eye break",
-                value: reminders.nextEyeBreakText
-            )
+    private var nextBreak: some View {
+        HStack(spacing: 11) {
+            Image(systemName: "eye")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.mint)
+                .frame(width: 30, height: 30)
+                .background(Color.mint.opacity(0.12), in: Circle())
 
-            ReminderRow(
-                icon: "drop.fill",
-                color: .blue,
-                title: "Drink water",
-                value: reminders.nextWaterReminderText
-            )
+            Text("Next eye break")
+                .font(.subheadline)
 
-            if reminders.lastWaterReminder != nil {
-                HStack(spacing: 8) {
-                    Image(systemName: "drop.circle.fill")
-                        .foregroundStyle(.blue)
-                    Text("Water reminder sent")
-                        .font(.caption.weight(.medium))
-                    Spacer()
-                    Button("Done") { reminders.recordWater() }
-                        .buttonStyle(.borderless)
-                    Button("10m") { reminders.snoozeWater() }
-                        .buttonStyle(.borderless)
+            Spacer()
+
+            Text(reminders.nextEyeBreakText)
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+    }
+
+    private var todayDashboard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Today")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("Resets daily")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            HStack(spacing: 10) {
+                SummaryTile(
+                    icon: "eye.slash.fill",
+                    color: .mint,
+                    value: "\(reminders.restsToday)",
+                    label: "Completed rests"
+                )
+
+                SummaryTile(
+                    icon: "clock.fill",
+                    color: .orange,
+                    value: reminders.workedTimeText,
+                    label: "Active work"
+                )
+            }
+
+            habitDashboard
+        }
+        .padding(16)
+    }
+
+    private var consistencyDashboard: some View {
+        let summary = reminders.habitConsistencySummary
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("28-day consistency", systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.subheadline.weight(.semibold))
+
+                Spacer()
+
+                if let overall = summary.overallScore {
+                    Text("\(overall)")
+                        .font(.title3.weight(.bold))
+                        .monospacedDigit()
+                    Text("/ 100")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(10)
-                .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+            }
+
+            if !reminders.isTickTickConnected {
+                HStack {
+                    Text("Connect TickTick to see your habit scores.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Connect…", action: showSettings)
+                        .font(.caption)
+                }
+            } else if summary.configuredHabitCount == 0 {
+                HStack {
+                    Text("Categorize habits to build your score.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Set up…", action: showSettings)
+                        .font(.caption)
+                }
+            } else {
+                ForEach(summary.categoryScores) { metric in
+                    ConsistencyRow(metric: metric)
+                }
             }
         }
         .padding(16)
+    }
+
+    private var habitDashboard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("TickTick habits", systemImage: "checkmark.circle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.blue)
+
+                Spacer()
+
+                if reminders.isTickTickConnected {
+                    Text("\(reminders.incompleteTickTickHabits.count) due")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        Task { await reminders.syncTickTickHabits(showSuccess: false) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(reminders.isTickTickSyncing)
+                    .help("Sync TickTick habits")
+                }
+            }
+
+            if reminders.isTickTickConnected {
+                HabitQuickAction(
+                    title: "Water",
+                    icon: "drop.fill",
+                    color: .blue,
+                    habit: reminders.selectedWaterHabit,
+                    isWorking: reminders.selectedWaterHabit.map(reminders.isCheckingHabit) ?? false,
+                    buttonTitle: "Log",
+                    disableWhenComplete: false,
+                    action: reminders.logWaterHabit
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Eye drops", systemImage: "eyedropper.halffull")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.purple)
+
+                    if reminders.selectedEyeDropsHabits.isEmpty {
+                        HabitQuickAction(
+                            title: "Eye drops",
+                            icon: "eyedropper.halffull",
+                            color: .purple,
+                            habit: nil,
+                            isWorking: false,
+                            buttonTitle: "Check",
+                            disableWhenComplete: true,
+                            action: {}
+                        )
+                    } else {
+                        ForEach(reminders.selectedEyeDropsHabits) { habit in
+                            HabitQuickAction(
+                                title: habit.name,
+                                icon: "eyedropper.halffull",
+                                color: .purple,
+                                habit: habit,
+                                isWorking: reminders.isCheckingHabit(habit),
+                                buttonTitle: "Check",
+                                disableWhenComplete: true,
+                                action: { reminders.checkEyeDropsHabit(habit) }
+                            )
+                        }
+                    }
+                }
+
+                if reminders.selectedWaterHabit == nil || reminders.selectedEyeDropsHabits.isEmpty {
+                    Button(action: showSettings) {
+                        Label("Link habits in Settings", systemImage: "link")
+                    }
+                    .font(.caption)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+            } else {
+                HStack {
+                    Text("Connect TickTick to log water and eye drops.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(action: showSettings) {
+                        Text("Connect…")
+                    }
+                        .font(.caption)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var controls: some View {
@@ -96,35 +255,42 @@ struct MenuBarView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(reminders.isEyeBreakActive)
 
-                Menu {
-                    if reminders.isPaused {
-                        Button("Resume reminders") { reminders.resume() }
-                    } else {
-                        Button("Pause for 30 minutes") { reminders.pause(for: 30) }
-                        Button("Pause for 1 hour") { reminders.pause(for: 60) }
-                        Button("Pause for 2 hours") { reminders.pause(for: 120) }
+                if reminders.isPaused {
+                    Button("Resume") {
+                        reminders.resume()
                     }
-                    Divider()
-                    Button("Skip next eye break") { reminders.skipNextEyeBreak() }
-                    Button("I drank water") { reminders.recordWater() }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .frame(width: 24)
+                    .buttonStyle(.bordered)
+                } else {
+                    Button("Pause 30m") {
+                        reminders.pause(for: 30)
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
             }
 
             HStack {
-                Button("Settings…") { openSettings() }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                Button("Skip next rest") {
+                    reminders.skipNextEyeBreak()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
 
                 Spacer()
 
-                Button("Quit RestIt") { NSApp.terminate(nil) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                Button(action: showSettings) {
+                    Text("Settings…")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+
+                Text("·")
+                    .foregroundStyle(.tertiary)
+
+                Button("Quit") {
+                    NSApp.terminate(nil)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
             .font(.caption)
         }
@@ -134,34 +300,124 @@ struct MenuBarView: View {
     private var statusSubtitle: String {
         if reminders.isPaused { return reminders.nextEyeBreakText }
         if reminders.isEyeBreakActive { return "A short break is in progress" }
-        return "Healthy reminders, quietly in your menu bar"
+        return "Eye rests and focused work time"
+    }
+
+    private func showSettings() {
+        SettingsWindowController.shared.show(reminders: reminders)
     }
 }
 
-private struct ReminderRow: View {
-    let icon: String
-    let color: Color
-    let title: String
-    let value: String
+private struct ConsistencyRow: View {
+    let metric: HabitConsistencyCategoryScore
 
     var body: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 8) {
+            Image(systemName: metric.category.icon)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 18)
+
+            Text(metric.category.name)
+                .font(.caption)
+                .frame(width: 72, alignment: .leading)
+
+            ProgressView(value: Double(metric.score ?? 0), total: 100)
+                .tint(color)
+                .opacity(metric.score == nil ? 0.35 : 1)
+
+            Text(metric.score.map { "\($0)" } ?? "—")
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(metric.score == nil ? .secondary : .primary)
+                .frame(width: 26, alignment: .trailing)
+        }
+    }
+
+    private var color: Color {
+        switch metric.category {
+        case .religious: .indigo
+        case .selfCare: .pink
+        case .contribution: .teal
+        }
+    }
+}
+
+private struct SummaryTile: View {
+    let icon: String
+    let color: Color
+    let value: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(color)
                 .frame(width: 30, height: 30)
                 .background(color.opacity(0.12), in: Circle())
 
-            Text(title)
-                .font(.subheadline)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .font(.headline)
+                    .monospacedDigit()
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
 
-            Spacer()
-
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
         }
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
+private struct HabitQuickAction: View {
+    let title: String
+    let icon: String
+    let color: Color
+    let habit: TickTickHabit?
+    let isWorking: Bool
+    let buttonTitle: String
+    let disableWhenComplete: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(habit?.name ?? title)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                Text(habit?.progressText ?? "Not linked")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if habit?.isCompletedToday == true {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
+
+            Button {
+                action()
+            } label: {
+                if isWorking {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(habit?.isCompletedToday == true && disableWhenComplete ? "Done" : buttonTitle)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(habit == nil || isWorking || (disableWhenComplete && habit?.isCompletedToday == true))
+        }
+    }
+}

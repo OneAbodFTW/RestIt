@@ -9,23 +9,25 @@
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* RestItApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* RestItApp.swift */; };
 		A10000000000000000000002 /* ReminderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ReminderManager.swift */; };
-		A10000000000000000000003 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* NotificationService.swift */; };
 		A10000000000000000000004 /* BreakOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* BreakOverlayController.swift */; };
 		A10000000000000000000005 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* MenuBarView.swift */; };
 		A10000000000000000000006 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* SettingsView.swift */; };
 		A10000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* Assets.xcassets */; };
 		A10000000000000000000008 /* AudioCuePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* AudioCuePlayer.swift */; };
+		A10000000000000000000009 /* TickTickHabitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* TickTickHabitService.swift */; };
+		A10000000000000000000010 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* SettingsWindowController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A20000000000000000000001 /* RestItApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestItApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* ReminderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderManager.swift; sourceTree = "<group>"; };
-		A20000000000000000000003 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* BreakOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreakOverlayController.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		A20000000000000000000006 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000008 /* AudioCuePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCuePlayer.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* TickTickHabitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TickTickHabitService.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* RestIt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RestIt.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -53,12 +55,13 @@
 			children = (
 				A20000000000000000000001 /* RestItApp.swift */,
 				A20000000000000000000002 /* ReminderManager.swift */,
-				A20000000000000000000003 /* NotificationService.swift */,
 				A20000000000000000000004 /* BreakOverlayController.swift */,
 				A20000000000000000000005 /* MenuBarView.swift */,
 				A20000000000000000000006 /* SettingsView.swift */,
 				A20000000000000000000007 /* Assets.xcassets */,
 				A20000000000000000000008 /* AudioCuePlayer.swift */,
+				A20000000000000000000009 /* TickTickHabitService.swift */,
+				A20000000000000000000010 /* SettingsWindowController.swift */,
 			);
 			path = RestIt;
 			sourceTree = "<group>";
@@ -145,11 +148,12 @@
 			files = (
 				A10000000000000000000001 /* RestItApp.swift in Sources */,
 				A10000000000000000000002 /* ReminderManager.swift in Sources */,
-				A10000000000000000000003 /* NotificationService.swift in Sources */,
 				A10000000000000000000004 /* BreakOverlayController.swift in Sources */,
 				A10000000000000000000005 /* MenuBarView.swift in Sources */,
 				A10000000000000000000006 /* SettingsView.swift in Sources */,
 				A10000000000000000000008 /* AudioCuePlayer.swift in Sources */,
+				A10000000000000000000009 /* TickTickHabitService.swift in Sources */,
+				A10000000000000000000010 /* SettingsWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
