@@ -214,6 +214,7 @@ actor TickTickHabitService {
         }
         .reversed()
         let todayStamp = Self.dateStamp(for: today)
+        let exclusiveEnd = calendar.date(byAdding: .day, value: 1, to: today) ?? today
         let rawHabits = Self.parseHabits(habitsPayload)
 
         guard !rawHabits.isEmpty else { return [] }
@@ -223,7 +224,8 @@ actor TickTickHabitService {
             arguments: [
                 "habit_ids": rawHabits.map(\.id),
                 "from_stamp": Self.dateStamp(for: days.first ?? today),
-                "to_stamp": todayStamp
+                // TickTick treats to_stamp as an exclusive boundary.
+                "to_stamp": Self.dateStamp(for: exclusiveEnd)
             ]
         )
         let checkins = Self.parseCheckins(checkinsPayload, habitIDs: Set(rawHabits.map(\.id)))
