@@ -159,13 +159,14 @@ final class ReminderManager: ObservableObject {
     }
 
     var menuBarTitle: String {
-        if isEyeBreakActive { return "Rest" }
-        if isPaused { return "Paused" }
-        guard eyeRemindersEnabled else { return "RestIt" }
+        let consistency = habitConsistencySummary.overallScore.map(String.init) ?? "—"
+        if isEyeBreakActive { return "C\(consistency) · Rest" }
+        if isPaused { return "C\(consistency) · Paused" }
+        guard eyeRemindersEnabled else { return "C\(consistency)" }
 
         let seconds = max(0, Int(nextEyeBreak.timeIntervalSince(now)))
         let minutes = max(1, Int(ceil(Double(seconds) / 60.0)))
-        return "\(minutes)m"
+        return "C\(consistency) · \(minutes)m"
     }
 
     var menuBarIcon: String {
