@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject private var reminders: ReminderManager
+    @State private var isShowingConsistencyInfo = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +18,7 @@ struct MenuBarView: View {
             controls
         }
         .frame(width: 350)
+        .tint(Color.accentColor)
     }
 
     private var header: some View {
@@ -36,15 +38,6 @@ struct MenuBarView: View {
             }
 
             Spacer()
-
-            if reminders.isPaused {
-                Text("PAUSED")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.orange.opacity(0.12), in: Capsule())
-            }
         }
         .padding(16)
     }
@@ -53,9 +46,9 @@ struct MenuBarView: View {
         HStack(spacing: 11) {
             Image(systemName: "eye")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.mint)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 30, height: 30)
-                .background(Color.mint.opacity(0.12), in: Circle())
+                .background(Color.accentColor.opacity(0.12), in: Circle())
 
             Text("Next eye break")
                 .font(.subheadline)
@@ -81,21 +74,12 @@ struct MenuBarView: View {
                     .foregroundStyle(.tertiary)
             }
 
-            HStack(spacing: 10) {
-                SummaryTile(
-                    icon: "eye.slash.fill",
-                    color: .mint,
-                    value: "\(reminders.restsToday)",
-                    label: "Completed rests"
-                )
-
-                SummaryTile(
-                    icon: "clock.fill",
-                    color: .orange,
-                    value: reminders.workedTimeText,
-                    label: "Active work"
-                )
-            }
+            SummaryTile(
+                icon: "eye.slash.fill",
+                color: Color.accentColor,
+                value: "\(reminders.restsToday)",
+                label: "Completed rests"
+            )
 
             habitDashboard
         }
@@ -107,7 +91,7 @@ struct MenuBarView: View {
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("28-day consistency", systemImage: "chart.line.uptrend.xyaxis")
+                Label("7-day consistency", systemImage: "chart.line.uptrend.xyaxis")
                     .font(.subheadline.weight(.semibold))
 
                 Spacer()
@@ -144,6 +128,26 @@ struct MenuBarView: View {
                 ForEach(summary.categoryScores) { metric in
                     ConsistencyRow(metric: metric)
                 }
+
+                Button {
+                    isShowingConsistencyInfo.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "scope")
+                        Text("See what’s affecting your score")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.accentColor)
+                .help("Compare each habit’s 7-day score and effect")
+                .popover(isPresented: $isShowingConsistencyInfo, arrowEdge: .bottom) {
+                    HabitImpactPopover(summary: summary)
+                }
             }
         }
         .padding(16)
@@ -154,7 +158,7 @@ struct MenuBarView: View {
             HStack {
                 Label("TickTick habits", systemImage: "checkmark.circle")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Color.accentColor)
 
                 Spacer()
 
@@ -189,17 +193,17 @@ struct MenuBarView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Eye drops", systemImage: "eyedropper.halffull")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(Color.accentColor)
 
                     if reminders.selectedEyeDropsHabits.isEmpty {
                         HabitQuickAction(
                             title: "Eye drops",
                             icon: "eyedropper.halffull",
-                            color: .purple,
+                            color: Color.accentColor,
                             habit: nil,
                             isWorking: false,
-                            buttonTitle: "Check",
-                            disableWhenComplete: true,
+                            buttonTitle: "Log",
+                            disableWhenComplete: false,
                             action: {}
                         )
                     } else {
@@ -207,11 +211,11 @@ struct MenuBarView: View {
                             HabitQuickAction(
                                 title: habit.name,
                                 icon: "eyedropper.halffull",
-                                color: .purple,
+                                color: Color.accentColor,
                                 habit: habit,
                                 isWorking: reminders.isCheckingHabit(habit),
-                                buttonTitle: "Check",
-                                disableWhenComplete: true,
+                                buttonTitle: "Log",
+                                disableWhenComplete: false,
                                 action: { reminders.checkEyeDropsHabit(habit) }
                             )
                         }
@@ -240,67 +244,41 @@ struct MenuBarView: View {
             }
         }
         .padding(12)
-        .background(Color.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var controls: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Button {
-                    reminders.startEyeBreakNow()
-                } label: {
-                    Label("Rest now", systemImage: "eye.slash")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(reminders.isEyeBreakActive)
-
-                if reminders.isPaused {
-                    Button("Resume") {
-                        reminders.resume()
-                    }
-                    .buttonStyle(.bordered)
-                } else {
-                    Button("Pause 30m") {
-                        reminders.pause(for: 30)
-                    }
-                    .buttonStyle(.bordered)
-                }
+        HStack {
+            Button("Skip next rest") {
+                reminders.skipNextEyeBreak()
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
 
-            HStack {
-                Button("Skip next rest") {
-                    reminders.skipNextEyeBreak()
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+            Spacer()
 
-                Spacer()
-
-                Button(action: showSettings) {
-                    Text("Settings…")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-
-                Text("·")
-                    .foregroundStyle(.tertiary)
-
-                Button("Quit") {
-                    NSApp.terminate(nil)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+            Button(action: showSettings) {
+                Text("Settings…")
             }
-            .font(.caption)
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+
+            Text("·")
+                .foregroundStyle(.tertiary)
+
+            Button("Quit") {
+                NSApp.terminate(nil)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
         }
+        .font(.caption)
         .padding(16)
     }
 
     private var statusSubtitle: String {
-        if reminders.isPaused { return reminders.nextEyeBreakText }
         if reminders.isEyeBreakActive { return "A short break is in progress" }
-        return "Eye rests and focused work time"
+        return "Eye-rest reminders and healthy habits"
     }
 
     private func showSettings() {
@@ -336,9 +314,116 @@ private struct ConsistencyRow: View {
 
     private var color: Color {
         switch metric.category {
-        case .religious: .indigo
-        case .selfCare: .pink
-        case .contribution: .teal
+        case .religious: Color.accentColor
+        case .selfCare: .cyan
+        }
+    }
+}
+
+private struct HabitImpactPopover: View {
+    let summary: HabitConsistencySummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("What’s affecting your score", systemImage: "scope")
+                .font(.headline)
+
+            Text("Habit score is average progress on scheduled days. Effect compares your overall score with that habit left out.")
+                .foregroundStyle(.secondary)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(summary.prioritizedHabitImpacts.enumerated()), id: \.element.id) { index, impact in
+                        HabitConsistencyImpactRow(impact: impact)
+                            .padding(.vertical, 8)
+
+                        if index < summary.prioritizedHabitImpacts.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 280)
+
+            Divider()
+
+            Text("Negative effects show the clearest room to improve. Effects are not additive because habits share daily and category averages.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 340, alignment: .leading)
+        .padding(16)
+    }
+}
+
+struct HabitConsistencyImpactRow: View {
+    let impact: HabitConsistencyHabitImpact
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: impact.category.icon)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(categoryColor)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(impact.habitName)
+                    .lineLimit(1)
+
+                Text("\(impact.category.name) · \(scheduledDaysText)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(impact.score.map { "\($0)%" } ?? "—")
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+
+                Label(effectText, systemImage: effectIcon)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(effectColor)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var scheduledDaysText: String {
+        "\(impact.scheduledDayCount) scheduled day\(impact.scheduledDayCount == 1 ? "" : "s")"
+    }
+
+    private var effectText: String {
+        guard let value = impact.overallScoreImpact else {
+            return impact.score == nil ? "No data" : "Sets score"
+        }
+        let pointLabel = abs(value) == 1 ? "pt" : "pts"
+        if value > 0 { return "Lifts +\(value) \(pointLabel)" }
+        if value < 0 { return "Lowers \(abs(value)) \(pointLabel)" }
+        return "No change"
+    }
+
+    private var effectIcon: String {
+        guard let value = impact.overallScoreImpact else { return "minus" }
+        if value > 0 { return "arrow.up.right" }
+        if value < 0 { return "arrow.down.right" }
+        return "equal"
+    }
+
+    private var effectColor: Color {
+        guard let value = impact.overallScoreImpact else { return .secondary }
+        if value > 0 { return .green }
+        if value < 0 { return .orange }
+        return .secondary
+    }
+
+    private var categoryColor: Color {
+        switch impact.category {
+        case .religious: Color.accentColor
+        case .selfCare: .cyan
         }
     }
 }

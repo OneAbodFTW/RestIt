@@ -4,7 +4,6 @@ import Security
 enum HabitConsistencyCategory: String, CaseIterable, Identifiable, Sendable {
     case religious
     case selfCare
-    case contribution
 
     var id: String { rawValue }
 
@@ -12,7 +11,6 @@ enum HabitConsistencyCategory: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .religious: "Religious"
         case .selfCare: "Self-care"
-        case .contribution: "Contribution"
         }
     }
 
@@ -20,7 +18,6 @@ enum HabitConsistencyCategory: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .religious: "sparkles"
         case .selfCare: "heart.fill"
-        case .contribution: "hands.and.sparkles.fill"
         }
     }
 }
@@ -80,25 +77,122 @@ struct HabitConsistencyCategoryScore: Identifiable, Hashable, Sendable {
     var id: String { category.id }
 }
 
+struct HabitConsistencyHabitImpact: Identifiable, Hashable, Sendable {
+    let habitID: String
+    let habitName: String
+    let category: HabitConsistencyCategory
+    let score: Int?
+    let scheduledDayCount: Int
+    let overallScoreImpact: Int?
+
+    var id: String { habitID }
+}
+
 struct HabitConsistencySummary: Hashable, Sendable {
+    static let defaultDays = 7
+
     let days: Int
     let categoryScores: [HabitConsistencyCategoryScore]
+    let habitImpacts: [HabitConsistencyHabitImpact]
 
     var overallScore: Int? {
-        let scores = categoryScores.compactMap(\.score)
-        guard !scores.isEmpty else { return nil }
-        return Int((Double(scores.reduce(0, +)) / Double(scores.count)).rounded())
+        Self.overallScore(from: categoryScores)
     }
 
     var configuredHabitCount: Int {
         categoryScores.reduce(0) { $0 + $1.habitCount }
     }
 
+    /// Places the habits lowering the score first, followed by neutral, lifting,
+    /// and insufficient-data habits. Larger effects take priority within a group.
+    var prioritizedHabitImpacts: [HabitConsistencyHabitImpact] {
+        habitImpacts.sorted { lhs, rhs in
+            let lhsRank = Self.impactRank(lhs.overallScoreImpact)
+            let rhsRank = Self.impactRank(rhs.overallScoreImpact)
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+
+            if lhs.overallScoreImpact != rhs.overallScoreImpact {
+                switch lhsRank {
+                case 0:
+                    return (lhs.overallScoreImpact ?? 0) < (rhs.overallScoreImpact ?? 0)
+                case 2:
+                    return (lhs.overallScoreImpact ?? 0) > (rhs.overallScoreImpact ?? 0)
+                default:
+                    break
+                }
+            }
+
+            if lhs.score != rhs.score {
+                return (lhs.score ?? Int.max) < (rhs.score ?? Int.max)
+            }
+            return lhs.habitName.localizedCaseInsensitiveCompare(rhs.habitName) == .orderedAscending
+        }
+    }
+
     static func calculate(
         habits: [TickTickHabit],
         assignments: [String: HabitConsistencyCategory],
-        days: Int = 28
+        days: Int = HabitConsistencySummary.defaultDays,
+        now: Date = Date(),
+        calendar: Calendar = .current
     ) -> HabitConsistencySummary {
+        let days = max(1, days)
+        let today = calendar.startOfDay(for: now)
+        let includedStamps = Set((0..<days).compactMap { offset -> Int? in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
+            let components = calendar.dateComponents([.year, .month, .day], from: date)
+            return (components.year ?? 0) * 10_000 + (components.month ?? 0) * 100 + (components.day ?? 0)
+        })
+        // Filter before calculating categories and impacts, even if the caller loaded more history.
+        let habits = habits.map { habit in
+            var habit = habit
+            habit.recentDays = habit.recentDays.filter { includedStamps.contains($0.stamp) }
+            return habit
+        }
+        let categoryScores = calculateCategoryScores(habits: habits, assignments: assignments)
+        let currentOverallScore = overallScore(from: categoryScores)
+        let habitImpacts = habits.compactMap { habit -> HabitConsistencyHabitImpact? in
+            guard let category = assignments[habit.id] else { return nil }
+
+            let scheduledDays = habit.recentDays.filter(\.isScheduled)
+            let habitScore = scheduledDays.isEmpty
+                ? nil
+                : Int((100 * scheduledDays.map(\.progress).reduce(0, +) / Double(scheduledDays.count)).rounded())
+
+            let scoresWithoutHabit = calculateCategoryScores(
+                habits: habits.filter { $0.id != habit.id },
+                assignments: assignments
+            )
+            let scoreWithoutHabit = overallScore(from: scoresWithoutHabit)
+            let impact: Int? = if habitScore != nil,
+                                  let currentOverallScore,
+                                  let scoreWithoutHabit {
+                currentOverallScore - scoreWithoutHabit
+            } else {
+                nil
+            }
+
+            return HabitConsistencyHabitImpact(
+                habitID: habit.id,
+                habitName: habit.name,
+                category: category,
+                score: habitScore,
+                scheduledDayCount: scheduledDays.count,
+                overallScoreImpact: impact
+            )
+        }
+
+        return HabitConsistencySummary(
+            days: days,
+            categoryScores: categoryScores,
+            habitImpacts: habitImpacts
+        )
+    }
+
+    private static func calculateCategoryScores(
+        habits: [TickTickHabit],
+        assignments: [String: HabitConsistencyCategory]
+    ) -> [HabitConsistencyCategoryScore] {
         let scores = HabitConsistencyCategory.allCases.map { category in
             let assignedHabits = habits.filter { assignments[$0.id] == category }
             var progressByDay: [Int: [Double]] = [:]
@@ -125,7 +219,20 @@ struct HabitConsistencySummary: Hashable, Sendable {
             )
         }
 
-        return HabitConsistencySummary(days: days, categoryScores: scores)
+        return scores
+    }
+
+    private static func overallScore(from categoryScores: [HabitConsistencyCategoryScore]) -> Int? {
+        let scores = categoryScores.compactMap(\.score)
+        guard !scores.isEmpty else { return nil }
+        return Int((Double(scores.reduce(0, +)) / Double(scores.count)).rounded())
+    }
+
+    private static func impactRank(_ impact: Int?) -> Int {
+        guard let impact else { return 3 }
+        if impact < 0 { return 0 }
+        if impact == 0 { return 1 }
+        return 2
     }
 }
 
@@ -205,7 +312,7 @@ actor TickTickHabitService {
         self.token = token
     }
 
-    func fetchHabits(historyDays: Int = 28) async throws -> [TickTickHabit] {
+    func fetchHabits(historyDays: Int = HabitConsistencySummary.defaultDays) async throws -> [TickTickHabit] {
         let habitsPayload = try await callTool("list_habits", arguments: [:])
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())

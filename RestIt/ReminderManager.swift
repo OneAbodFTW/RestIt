@@ -11,7 +11,6 @@ final class ReminderManager: ObservableObject {
         static let audioCueVolume = "audioCueVolume"
         static let trackingDayStart = "trackingDayStart"
         static let restsToday = "restsToday"
-        static let workedSecondsToday = "workedSecondsToday"
         static let selectedWaterHabitID = "selectedWaterHabitID"
         static let selectedEyeDropsHabitIDs = "selectedEyeDropsHabitIDs"
         static let selectedEyeDropsHabitID = "selectedEyeDropsHabitID"
@@ -65,10 +64,8 @@ final class ReminderManager: ObservableObject {
 
     @Published private(set) var now = Date()
     @Published private(set) var nextEyeBreak = Date()
-    @Published private(set) var pausedUntil: Date?
     @Published private(set) var isEyeBreakActive = false
     @Published private(set) var restsToday = 0
-    @Published private(set) var workedSecondsToday: TimeInterval = 0
     @Published private(set) var tickTickHabits: [TickTickHabit] = []
     @Published private(set) var isTickTickConnected = false
     @Published private(set) var isTickTickSyncing = false
@@ -82,8 +79,6 @@ final class ReminderManager: ObservableObject {
     private var timer: Timer?
     private var hasStarted = false
     private var trackingDayStart = Calendar.current.startOfDay(for: Date())
-    private var lastTickDate = Date()
-    private var lastStatsPersistDate = Date.distantPast
     private var lastTickTickSyncDate = Date.distantPast
 
     init(defaults: UserDefaults = .standard, overlayController: BreakOverlayController) {
@@ -98,7 +93,6 @@ final class ReminderManager: ObservableObject {
             DefaultsKey.audioCueVolume: 0.55,
             DefaultsKey.trackingDayStart: 0.0,
             DefaultsKey.restsToday: 0,
-            DefaultsKey.workedSecondsToday: 0.0,
             DefaultsKey.selectedWaterHabitID: "",
             DefaultsKey.selectedEyeDropsHabitIDs: [String](),
             DefaultsKey.selectedEyeDropsHabitID: "",
@@ -118,13 +112,16 @@ final class ReminderManager: ObservableObject {
         )
         let savedAssignments = defaults.dictionary(forKey: DefaultsKey.habitCategoryAssignments) as? [String: String] ?? [:]
         habitCategoryAssignments = savedAssignments.compactMapValues(HabitConsistencyCategory.init(rawValue:))
+        defaults.set(
+            habitCategoryAssignments.mapValues(\.rawValue),
+            forKey: DefaultsKey.habitCategoryAssignments
+        )
         defaults.set(selectedEyeDropsHabitIDs.sorted(), forKey: DefaultsKey.selectedEyeDropsHabitIDs)
         defaults.removeObject(forKey: DefaultsKey.selectedEyeDropsHabitID)
         isTickTickConnected = ((try? TickTickTokenStore.load()) ?? nil) != nil
 
         let start = Date()
         nextEyeBreak = start.addingTimeInterval(TimeInterval(eyeIntervalMinutes * 60))
-        lastTickDate = start
         restoreDailyStats(at: start)
         startTimers()
 
@@ -135,33 +132,15 @@ final class ReminderManager: ObservableObject {
 
     deinit { timer?.invalidate() }
 
-    var isPaused: Bool {
-        guard let pausedUntil else { return false }
-        return pausedUntil > now
-    }
-
     var nextEyeBreakText: String {
         guard eyeRemindersEnabled else { return "Off" }
-        if let pausedUntil, pausedUntil > now {
-            return "Paused for \(Self.durationText(from: now, to: pausedUntil))"
-        }
         if isEyeBreakActive { return "Resting now" }
         return Self.durationText(from: now, to: nextEyeBreak)
-    }
-
-    var workedTimeText: String {
-        let totalMinutes = Int(workedSecondsToday) / 60
-        if totalMinutes < 60 { return "\(totalMinutes)m" }
-
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        return minutes == 0 ? "\(hours)h" : "\(hours)h \(minutes)m"
     }
 
     var menuBarTitle: String {
         let consistency = habitConsistencySummary.overallScore.map(String.init) ?? "—"
         if isEyeBreakActive { return "C\(consistency) · Rest" }
-        if isPaused { return "C\(consistency) · Paused" }
         guard eyeRemindersEnabled else { return "C\(consistency)" }
 
         let seconds = max(0, Int(nextEyeBreak.timeIntervalSince(now)))
@@ -170,7 +149,6 @@ final class ReminderManager: ObservableObject {
     }
 
     var menuBarIcon: String {
-        if isPaused { return "pause.circle.fill" }
         if isEyeBreakActive { return "eye.slash.fill" }
         return "eye.fill"
     }
@@ -194,30 +172,9 @@ final class ReminderManager: ObservableObject {
         )
     }
 
-    func startEyeBreakNow() {
-        guard !isEyeBreakActive else { return }
-        beginEyeBreak()
-    }
-
     func skipNextEyeBreak() {
         guard !isEyeBreakActive else { return }
         nextEyeBreak = Date().addingTimeInterval(eyeInterval)
-    }
-
-    func pause(for minutes: Int) {
-        let resumeDate = Date().addingTimeInterval(TimeInterval(minutes * 60))
-        pausedUntil = resumeDate
-        nextEyeBreak = resumeDate.addingTimeInterval(eyeInterval)
-
-        if isEyeBreakActive {
-            overlayController.dismiss()
-            isEyeBreakActive = false
-        }
-    }
-
-    func resume() {
-        pausedUntil = nil
-        resetEyeSchedule()
     }
 
     func previewAudioCue() {
@@ -252,7 +209,6 @@ final class ReminderManager: ObservableObject {
             isTickTickConnected = false
             tickTickHabits = []
             checkingHabitIDs = []
-            overlayController.updateHabits([])
             setTickTickStatus("Disconnected from TickTick.", isError: false)
         } catch {
             setTickTickStatus(error.localizedDescription, isError: true)
@@ -319,7 +275,7 @@ final class ReminderManager: ObservableObject {
             setTickTickStatus("Link that eye-drop habit in Settings first.", isError: true)
             return
         }
-        checkIn(habit, complete: true)
+        checkIn(habit, complete: false)
     }
 
     func isCheckingHabit(_ habit: TickTickHabit) -> Bool {
@@ -342,31 +298,14 @@ final class ReminderManager: ObservableObject {
 
     private func tick() {
         let currentDate = Date()
-        let previousTickDate = lastTickDate
-        let elapsed = min(max(0, currentDate.timeIntervalSince(previousTickDate)), 5)
-        let wasPaused = pausedUntil.map { $0 > previousTickDate } ?? false
-
-        lastTickDate = currentDate
         now = currentDate
         rollDailyStatsIfNeeded(at: currentDate)
 
-        if !wasPaused, !isEyeBreakActive { workedSecondsToday += elapsed }
-        if currentDate.timeIntervalSince(lastStatsPersistDate) >= 15 {
-            persistDailyStats()
-            lastStatsPersistDate = currentDate
-        }
         if isTickTickConnected,
            !isTickTickSyncing,
            currentDate.timeIntervalSince(lastTickTickSyncDate) >= 300 {
             lastTickTickSyncDate = currentDate
             Task { await syncTickTickHabits(showSuccess: false) }
-        }
-
-        if let pausedUntil {
-            if pausedUntil > currentDate { return }
-            self.pausedUntil = nil
-            resetEyeSchedule(from: currentDate)
-            return
         }
 
         if eyeRemindersEnabled, !isEyeBreakActive, currentDate >= nextEyeBreak {
@@ -384,8 +323,6 @@ final class ReminderManager: ObservableObject {
 
         overlayController.show(
             duration: eyeBreakSeconds,
-            incompleteHabits: incompleteTickTickHabits,
-            onHabitCompleted: { [weak self] habit in self?.checkIn(habit, complete: true) },
             onFinished: { [weak self] completed in
                 guard let self else { return }
                 self.isEyeBreakActive = false
@@ -414,10 +351,8 @@ final class ReminderManager: ObservableObject {
                 let value = try await TickTickHabitService(token: token).checkIn(habit, complete: complete)
                 guard let index = tickTickHabits.firstIndex(where: { $0.id == habit.id }) else { return }
                 tickTickHabits[index].applyCurrentValue(value)
-                overlayController.updateHabits(incompleteTickTickHabits)
                 setTickTickStatus("Logged \(habit.name) in TickTick.", isError: false)
             } catch {
-                overlayController.updateHabits(incompleteTickTickHabits)
                 setTickTickStatus(error.localizedDescription, isError: true)
             }
         }
@@ -425,7 +360,6 @@ final class ReminderManager: ObservableObject {
 
     private func applyTickTickHabits(_ habits: [TickTickHabit]) {
         tickTickHabits = habits
-        overlayController.updateHabits(incompleteTickTickHabits)
     }
 
     private func setTickTickStatus(_ message: String, isError: Bool) {
@@ -458,7 +392,6 @@ final class ReminderManager: ObservableObject {
 
         trackingDayStart = Calendar.current.startOfDay(for: savedDate)
         restsToday = defaults.integer(forKey: DefaultsKey.restsToday)
-        workedSecondsToday = defaults.double(forKey: DefaultsKey.workedSecondsToday)
     }
 
     private func rollDailyStatsIfNeeded(at date: Date) {
@@ -466,7 +399,6 @@ final class ReminderManager: ObservableObject {
 
         trackingDayStart = Calendar.current.startOfDay(for: date)
         restsToday = 0
-        workedSecondsToday = 0
         lastTickTickSyncDate = .distantPast
         persistDailyStats()
     }
@@ -474,7 +406,6 @@ final class ReminderManager: ObservableObject {
     private func persistDailyStats() {
         defaults.set(trackingDayStart.timeIntervalSince1970, forKey: DefaultsKey.trackingDayStart)
         defaults.set(restsToday, forKey: DefaultsKey.restsToday)
-        defaults.set(workedSecondsToday, forKey: DefaultsKey.workedSecondsToday)
     }
 
     private static func durationText(from start: Date, to end: Date) -> String {

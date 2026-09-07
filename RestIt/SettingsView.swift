@@ -1,7 +1,35 @@
 import SwiftUI
 
+private enum SettingsTab: String, CaseIterable, Identifiable {
+    case reminders
+    case habits
+    case consistency
+    case sound
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .reminders: "Reminders"
+        case .habits: "TickTick Habits"
+        case .consistency: "Consistency"
+        case .sound: "Sound"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .reminders: "eye"
+        case .habits: "checkmark.circle"
+        case .consistency: "chart.line.uptrend.xyaxis"
+        case .sound: "speaker.wave.2"
+        }
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var reminders: ReminderManager
+    @State private var selectedTab: SettingsTab = .reminders
     @State private var tickTickToken = ""
     @State private var habitSearch = ""
     @State private var consistencySearch = ""
@@ -10,21 +38,67 @@ struct SettingsView: View {
     private let breakDurations = [20, 30, 60]
 
     var body: some View {
-        TabView {
-            reminderSettings
-                .tabItem { Label("Reminders", systemImage: "eye") }
-
-            tickTickSettings
-                .tabItem { Label("TickTick Habits", systemImage: "checkmark.circle") }
-
-            consistencySettings
-                .tabItem { Label("Consistency", systemImage: "chart.line.uptrend.xyaxis") }
-
-            soundSettings
-                .tabItem { Label("Sound", systemImage: "speaker.wave.2") }
+        VStack(spacing: 0) {
+            settingsTabBar
+            Divider()
+            selectedSettings
         }
-        .frame(width: 560, height: 520)
+        .frame(width: 620, height: 560)
+        .tint(Color.accentColor)
         .navigationTitle("RestIt Settings")
+    }
+
+    private var settingsTabBar: some View {
+        HStack(spacing: 8) {
+            ForEach(SettingsTab.allCases) { tab in
+                Button {
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        selectedTab = tab
+                    }
+                } label: {
+                    VStack(spacing: 6) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 16, weight: .semibold))
+                        Text(tab.title)
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(selectedTab == tab ? Color.accentColor : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        selectedTab == tab ? Color.accentColor.opacity(0.12) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 10)
+                    )
+                    .overlay(alignment: .bottom) {
+                        if selectedTab == tab {
+                            Capsule()
+                                .fill(Color.accentColor)
+                                .frame(width: 28, height: 3)
+                                .offset(y: 1)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .background(Color.accentColor.opacity(0.035))
+    }
+
+    @ViewBuilder
+    private var selectedSettings: some View {
+        switch selectedTab {
+        case .reminders:
+            reminderSettings
+        case .habits:
+            tickTickSettings
+        case .consistency:
+            consistencySettings
+        case .sound:
+            soundSettings
+        }
     }
 
     private var reminderSettings: some View {
@@ -48,20 +122,17 @@ struct SettingsView: View {
             } header: {
                 Label("Eye Breaks", systemImage: "eye")
             } footer: {
-                Text("The full-screen break also shows TickTick habits that are still due today.")
+                Text("The full-screen break keeps distractions to a minimum so you can close your eyes and rest.")
             }
 
             Section {
-                LabeledContent("Rests") {
+                LabeledContent("Completed rests") {
                     Text("\(reminders.restsToday)").monospacedDigit()
-                }
-                LabeledContent("Active work") {
-                    Text(reminders.workedTimeText).monospacedDigit()
                 }
             } header: {
                 Label("Today", systemImage: "chart.bar")
             } footer: {
-                Text("Daily totals persist between launches and reset at local midnight.")
+                Text("Only rests that finish count. The total persists between launches and resets at local midnight.")
             }
         }
         .formStyle(.grouped)
@@ -128,7 +199,7 @@ struct SettingsView: View {
 
                 HStack {
                     Label("Eye drops", systemImage: "eyedropper.halffull")
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(Color.accentColor)
                     Spacer()
                     Text(eyeDropsSelectionLabel)
                         .foregroundStyle(.secondary)
@@ -152,7 +223,7 @@ struct SettingsView: View {
                                         Image(systemName: reminders.isEyeDropsHabitSelected(habit)
                                             ? "checkmark.circle.fill"
                                             : "circle")
-                                            .foregroundStyle(reminders.isEyeDropsHabitSelected(habit) ? .purple : .secondary)
+                                            .foregroundStyle(reminders.isEyeDropsHabitSelected(habit) ? Color.accentColor : Color.secondary)
 
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(habit.name)
@@ -192,7 +263,7 @@ struct SettingsView: View {
             } header: {
                 Label("Habit Links", systemImage: "arrow.triangle.branch")
             } footer: {
-                Text("Loaded \(reminders.tickTickHabits.count) habits. Water adds one configured habit step. Select any number of eye-drop habits; each gets its own Check button in the RestIt menu.")
+                Text("Loaded \(reminders.tickTickHabits.count) habits. Water and eye-drop logs each add one configured habit step. Select any number of eye-drop habits; each gets its own Log button in the RestIt menu.")
             }
             .disabled(!reminders.isTickTickConnected || reminders.tickTickHabits.isEmpty)
 
@@ -273,9 +344,32 @@ struct SettingsView: View {
                     }
                 }
             } header: {
-                Label("28-day scores", systemImage: "gauge.with.dots.needle.67percent")
+                Label("7-day scores", systemImage: "gauge.with.dots.needle.67percent")
             } footer: {
-                Text("Each score averages daily progress for habits scheduled in that category. The overall score gives all configured categories equal weight.")
+                Text("For each of the last 7 days (including today), scheduled habits receive progress from 0–100%; numeric goals receive proportional credit. Each category averages its habits’ daily progress, and the overall score weights Religious and Self-care equally. Unscheduled days and categories without data are ignored.")
+            }
+
+            Section {
+                if !reminders.isTickTickConnected {
+                    Text("Connect TickTick to see habit impact.")
+                        .foregroundStyle(.secondary)
+                } else if reminders.habitConsistencySummary.habitImpacts.isEmpty {
+                    Text("Categorize at least one habit to see its score effect.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(reminders.habitConsistencySummary.prioritizedHabitImpacts.enumerated()), id: \.element.id) { index, impact in
+                        HabitConsistencyImpactRow(impact: impact)
+                            .padding(.vertical, 3)
+
+                        if index < reminders.habitConsistencySummary.prioritizedHabitImpacts.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+            } header: {
+                Label("Habit impact", systemImage: "scope")
+            } footer: {
+                Text("Habit score is average progress on its scheduled days. Effect is the change in your overall score compared with leaving that habit out. Negative effects show where improvement would help most; effects are not additive.")
             }
 
             Section {
