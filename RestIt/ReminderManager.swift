@@ -74,6 +74,7 @@ final class ReminderManager: ObservableObject {
     @Published private(set) var tickTickStatusIsError = false
 
     private let defaults: UserDefaults
+    private let tickTickTokenLoader: () throws -> String?
     private let overlayController: BreakOverlayController
     private let audioCuePlayer = AudioCuePlayer()
     private var timer: Timer?
@@ -81,8 +82,13 @@ final class ReminderManager: ObservableObject {
     private var trackingDayStart = Calendar.current.startOfDay(for: Date())
     private var lastTickTickSyncDate = Date.distantPast
 
-    init(defaults: UserDefaults = .standard, overlayController: BreakOverlayController) {
+    init(
+        defaults: UserDefaults = .standard,
+        overlayController: BreakOverlayController,
+        tickTickTokenLoader: @escaping () throws -> String? = TickTickTokenStore.load
+    ) {
         self.defaults = defaults
+        self.tickTickTokenLoader = tickTickTokenLoader
         self.overlayController = overlayController
 
         defaults.register(defaults: [
@@ -118,7 +124,7 @@ final class ReminderManager: ObservableObject {
         )
         defaults.set(selectedEyeDropsHabitIDs.sorted(), forKey: DefaultsKey.selectedEyeDropsHabitIDs)
         defaults.removeObject(forKey: DefaultsKey.selectedEyeDropsHabitID)
-        isTickTickConnected = ((try? TickTickTokenStore.load()) ?? nil) != nil
+        isTickTickConnected = ((try? tickTickTokenLoader()) ?? nil) != nil
 
         let start = Date()
         nextEyeBreak = start.addingTimeInterval(TimeInterval(eyeIntervalMinutes * 60))
@@ -216,8 +222,8 @@ final class ReminderManager: ObservableObject {
     }
 
     func syncTickTickHabits(showSuccess: Bool = true) async {
-        guard !isTickTickSyncing else { return }
-        guard let token = try? TickTickTokenStore.load() else {
+        guard !isTickTickSyncing, checkingHabitIDs.isEmpty else { return }
+        guard let token = try? tickTickTokenLoader() else {
             isTickTickConnected = false
             if showSuccess { setTickTickStatus("Connect TickTick first.", isError: true) }
             return
@@ -231,7 +237,7 @@ final class ReminderManager: ObservableObject {
             isTickTickConnected = true
             applyTickTickHabits(habits)
             if showSuccess {
-                setTickTickStatus("Synced \(habits.count) habit\(habits.count == 1 ? "" : "s").", isError: false)
+                setTickTickStatus("Refreshed \(habits.count) habit\(habits.count == 1 ? "" : "s") and the last \(HabitConsistencySummary.defaultDays) days of check-ins.", isError: false)
             }
         } catch {
             setTickTickStatus(error.localizedDescription, isError: true)
@@ -303,6 +309,7 @@ final class ReminderManager: ObservableObject {
 
         if isTickTickConnected,
            !isTickTickSyncing,
+           checkingHabitIDs.isEmpty,
            currentDate.timeIntervalSince(lastTickTickSyncDate) >= 300 {
             lastTickTickSyncDate = currentDate
             Task { await syncTickTickHabits(showSuccess: false) }
@@ -338,22 +345,32 @@ final class ReminderManager: ObservableObject {
     }
 
     private func checkIn(_ habit: TickTickHabit, complete: Bool) {
-        guard !checkingHabitIDs.contains(habit.id) else { return }
-        guard let token = try? TickTickTokenStore.load() else {
+        // Serialize check-ins and refreshes so an older fetch cannot replace a
+        // just-saved value, including automatic refreshes started by the timer.
+        guard !isTickTickSyncing, checkingHabitIDs.isEmpty else { return }
+        guard let token = try? tickTickTokenLoader() else {
             setTickTickStatus("Connect TickTick first.", isError: true)
             return
         }
 
         checkingHabitIDs.insert(habit.id)
         Task {
-            defer { checkingHabitIDs.remove(habit.id) }
             do {
                 let value = try await TickTickHabitService(token: token).checkIn(habit, complete: complete)
-                guard let index = tickTickHabits.firstIndex(where: { $0.id == habit.id }) else { return }
-                tickTickHabits[index].applyCurrentValue(value)
+                if let index = tickTickHabits.firstIndex(where: { $0.id == habit.id }) {
+                    tickTickHabits[index].applyCurrentValue(value)
+                }
                 setTickTickStatus("Logged \(habit.name) in TickTick.", isError: false)
             } catch {
+                checkingHabitIDs.remove(habit.id)
                 setTickTickStatus(error.localizedDescription, isError: true)
+                return
+            }
+            checkingHabitIDs.remove(habit.id)
+            // Reload canonical records, including history edited on other devices.
+            await syncTickTickHabits(showSuccess: false)
+            if tickTickStatusIsError {
+                setTickTickStatus("Logged \(habit.name) in TickTick, but could not refresh: \(tickTickStatusMessage ?? "Unknown error")", isError: true)
             }
         }
     }

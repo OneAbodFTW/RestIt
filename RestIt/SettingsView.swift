@@ -42,6 +42,10 @@ struct SettingsView: View {
             settingsTabBar
             Divider()
             selectedSettings
+            Divider()
+            TickTickRefreshControls()
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
         }
         .frame(width: 620, height: 560)
         .tint(Color.accentColor)
@@ -163,11 +167,6 @@ struct SettingsView: View {
                     .disabled(tickTickToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || reminders.isTickTickSyncing)
 
                     if reminders.isTickTickConnected {
-                        Button("Sync now") {
-                            Task { await reminders.syncTickTickHabits() }
-                        }
-                        .disabled(reminders.isTickTickSyncing)
-
                         Button("Disconnect", role: .destructive) {
                             reminders.disconnectTickTick()
                         }
@@ -285,17 +284,6 @@ struct SettingsView: View {
                 }
             }
 
-            if let status = reminders.tickTickStatusMessage {
-                Section {
-                    Label(
-                        status,
-                        systemImage: reminders.tickTickStatusIsError
-                            ? "exclamationmark.triangle.fill"
-                            : "checkmark.circle.fill"
-                    )
-                    .foregroundStyle(reminders.tickTickStatusIsError ? .red : .green)
-                }
-            }
         }
         .formStyle(.grouped)
     }
@@ -326,50 +314,39 @@ struct SettingsView: View {
     }
 
     private var consistencySettings: some View {
-        Form {
-            Section {
-                LabeledContent("Overall") {
-                    Text(scoreText(reminders.habitConsistencySummary.overallScore))
-                        .font(.title3.weight(.semibold))
-                        .monospacedDigit()
-                }
+        let summary = reminders.habitConsistencySummary
 
-                ForEach(reminders.habitConsistencySummary.categoryScores) { metric in
-                    LabeledContent {
-                        Text(scoreText(metric.score))
-                            .monospacedDigit()
-                            .foregroundStyle(metric.score == nil ? .secondary : .primary)
-                    } label: {
-                        Label(metric.category.name, systemImage: metric.category.icon)
-                    }
-                }
+        return Form {
+            Section {
+                HabitConsistencyScoreCalculation(summary: summary)
             } header: {
                 Label("7-day scores", systemImage: "gauge.with.dots.needle.67percent")
-            } footer: {
-                Text("For each of the last 7 days (including today), scheduled habits receive progress from 0–100%; numeric goals receive proportional credit. Each category averages its habits’ daily progress, and the overall score weights Religious and Self-care equally. Unscheduled days and categories without data are ignored.")
             }
 
             Section {
                 if !reminders.isTickTickConnected {
-                    Text("Connect TickTick to see habit impact.")
+                    Text("Connect TickTick to see weekly consistency.")
                         .foregroundStyle(.secondary)
-                } else if reminders.habitConsistencySummary.habitImpacts.isEmpty {
-                    Text("Categorize at least one habit to see its score effect.")
+                } else if summary.habitImpacts.isEmpty {
+                    Text("Categorize at least one habit to see its weekly consistency.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(Array(reminders.habitConsistencySummary.prioritizedHabitImpacts.enumerated()), id: \.element.id) { index, impact in
-                        HabitConsistencyImpactRow(impact: impact)
-                            .padding(.vertical, 3)
-
-                        if index < reminders.habitConsistencySummary.prioritizedHabitImpacts.count - 1 {
-                            Divider()
-                        }
+                    ForEach(summary.prioritizedHabitImpacts) { impact in
+                        HabitConsistencyImpactRow(impact: impact, dayStamps: summary.dayStamps)
+                            .padding(.vertical, 6)
                     }
                 }
             } header: {
-                Label("Habit impact", systemImage: "scope")
+                Label("Your habits this week", systemImage: "calendar")
             } footer: {
-                Text("Habit score is average progress on its scheduled days. Effect is the change in your overall score compared with leaving that habit out. Negative effects show where improvement would help most; effects are not additive.")
+                Text("Each row shows the last 7 days, including today. A checkmark means the goal was met, a half-circle means partial progress, and a dash means no scheduled data. Partial progress earns partial credit; days off are ignored.")
+            }
+
+            Section {
+                DisclosureGroup("How weekly consistency is calculated") {
+                    HabitConsistencyFormulaExplanation()
+                        .padding(.top, 6)
+                }
             }
 
             Section {
@@ -463,7 +440,4 @@ struct SettingsView: View {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private func scoreText(_ score: Int?) -> String {
-        score.map { "\($0)" } ?? "—"
-    }
 }

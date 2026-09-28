@@ -68,30 +68,83 @@ struct TickTickHabit: Identifiable, Hashable, Sendable {
     }
 }
 
+struct HabitConsistencyCategoryDayScore: Hashable, Sendable {
+    let stamp: Int
+    let progress: Double
+    let habitCount: Int
+}
+
 struct HabitConsistencyCategoryScore: Identifiable, Hashable, Sendable {
     let category: HabitConsistencyCategory
-    let score: Int?
     let habitCount: Int
-    let scheduledDayCount: Int
+    let dailyScores: [HabitConsistencyCategoryDayScore]
 
     var id: String { category.id }
+    var scheduledDayCount: Int { dailyScores.count }
+
+    var unroundedScore: Double? {
+        guard !dailyScores.isEmpty else { return nil }
+        return 100 * dailyScores.map(\.progress).reduce(0, +) / Double(dailyScores.count)
+    }
+
+    var score: Int? { unroundedScore.map { Int($0.rounded()) } }
+}
+
+struct HabitConsistencyDayContribution: Identifiable, Hashable, Sendable {
+    let stamp: Int
+    let progress: Double
+    let scheduledHabitCount: Int
+    let categoryDayCount: Int
+    let scoredCategoryCount: Int
+
+    var id: Int { stamp }
+
+    /// A category gives every scored day equal weight, shared by habits due that day.
+    var possibleCategoryPoints: Double {
+        100 / Double(scheduledHabitCount) / Double(categoryDayCount)
+    }
+
+    var categoryPoints: Double { progress * possibleCategoryPoints }
+    var overallPoints: Double { categoryPoints / Double(scoredCategoryCount) }
+    var possibleOverallPoints: Double { possibleCategoryPoints / Double(scoredCategoryCount) }
 }
 
 struct HabitConsistencyHabitImpact: Identifiable, Hashable, Sendable {
     let habitID: String
     let habitName: String
     let category: HabitConsistencyCategory
-    let score: Int?
-    let scheduledDayCount: Int
+    let dayContributions: [HabitConsistencyDayContribution]
+    let overallScoreWithoutHabit: Int?
     let overallScoreImpact: Int?
 
     var id: String { habitID }
+    var scheduledDayCount: Int { dayContributions.count }
+    var progressTotal: Double { dayContributions.map(\.progress).reduce(0, +) }
+    var completedDayCount: Int { dayContributions.filter { $0.progress >= 1 }.count }
+    var partialDayCount: Int { dayContributions.filter { $0.progress > 0 && $0.progress < 1 }.count }
+    var zeroProgressDayCount: Int { dayContributions.filter { $0.progress == 0 }.count }
+
+    var score: Int? {
+        guard scheduledDayCount > 0 else { return nil }
+        return Int((100 * progressTotal / Double(scheduledDayCount)).rounded())
+    }
+
+    var overallPoints: Double? {
+        guard scheduledDayCount > 0 else { return nil }
+        return dayContributions.map(\.overallPoints).reduce(0, +)
+    }
+
+    var possibleOverallPoints: Double? {
+        guard scheduledDayCount > 0 else { return nil }
+        return dayContributions.map(\.possibleOverallPoints).reduce(0, +)
+    }
 }
 
 struct HabitConsistencySummary: Hashable, Sendable {
     static let defaultDays = 7
 
     let days: Int
+    let dayStamps: [Int]
     let categoryScores: [HabitConsistencyCategoryScore]
     let habitImpacts: [HabitConsistencyHabitImpact]
 
@@ -103,25 +156,22 @@ struct HabitConsistencySummary: Hashable, Sendable {
         categoryScores.reduce(0) { $0 + $1.habitCount }
     }
 
-    /// Places the habits lowering the score first, followed by neutral, lifting,
-    /// and insufficient-data habits. Larger effects take priority within a group.
+    var scoredCategoryCount: Int { categoryScores.filter { $0.score != nil }.count }
+
+    var totalHabitPoints: Double? {
+        guard overallScore != nil else { return nil }
+        return habitImpacts.compactMap(\.overallPoints).reduce(0, +)
+    }
+
+    /// Keep the existing two rounding steps explicit, so habit points reconcile to the score.
+    var roundingAdjustment: Double? {
+        guard let overallScore, let totalHabitPoints else { return nil }
+        return Double(overallScore) - totalHabitPoints
+    }
+
+    /// Show the lowest weekly consistency first, followed by habits without scheduled data.
     var prioritizedHabitImpacts: [HabitConsistencyHabitImpact] {
         habitImpacts.sorted { lhs, rhs in
-            let lhsRank = Self.impactRank(lhs.overallScoreImpact)
-            let rhsRank = Self.impactRank(rhs.overallScoreImpact)
-            if lhsRank != rhsRank { return lhsRank < rhsRank }
-
-            if lhs.overallScoreImpact != rhs.overallScoreImpact {
-                switch lhsRank {
-                case 0:
-                    return (lhs.overallScoreImpact ?? 0) < (rhs.overallScoreImpact ?? 0)
-                case 2:
-                    return (lhs.overallScoreImpact ?? 0) > (rhs.overallScoreImpact ?? 0)
-                default:
-                    break
-                }
-            }
-
             if lhs.score != rhs.score {
                 return (lhs.score ?? Int.max) < (rhs.score ?? Int.max)
             }
@@ -151,20 +201,29 @@ struct HabitConsistencySummary: Hashable, Sendable {
         }
         let categoryScores = calculateCategoryScores(habits: habits, assignments: assignments)
         let currentOverallScore = overallScore(from: categoryScores)
+        let scoredCategoryCount = categoryScores.filter { $0.score != nil }.count
         let habitImpacts = habits.compactMap { habit -> HabitConsistencyHabitImpact? in
-            guard let category = assignments[habit.id] else { return nil }
+            guard let category = assignments[habit.id],
+                  let categoryScore = categoryScores.first(where: { $0.category == category }) else { return nil }
 
             let scheduledDays = habit.recentDays.filter(\.isScheduled)
-            let habitScore = scheduledDays.isEmpty
-                ? nil
-                : Int((100 * scheduledDays.map(\.progress).reduce(0, +) / Double(scheduledDays.count)).rounded())
+            let contributions = scheduledDays.sorted { $0.stamp < $1.stamp }.compactMap { day -> HabitConsistencyDayContribution? in
+                guard let categoryDay = categoryScore.dailyScores.first(where: { $0.stamp == day.stamp }) else { return nil }
+                return HabitConsistencyDayContribution(
+                    stamp: day.stamp,
+                    progress: day.progress,
+                    scheduledHabitCount: categoryDay.habitCount,
+                    categoryDayCount: categoryScore.scheduledDayCount,
+                    scoredCategoryCount: scoredCategoryCount
+                )
+            }
 
             let scoresWithoutHabit = calculateCategoryScores(
                 habits: habits.filter { $0.id != habit.id },
                 assignments: assignments
             )
             let scoreWithoutHabit = overallScore(from: scoresWithoutHabit)
-            let impact: Int? = if habitScore != nil,
+            let impact: Int? = if !scheduledDays.isEmpty,
                                   let currentOverallScore,
                                   let scoreWithoutHabit {
                 currentOverallScore - scoreWithoutHabit
@@ -176,14 +235,15 @@ struct HabitConsistencySummary: Hashable, Sendable {
                 habitID: habit.id,
                 habitName: habit.name,
                 category: category,
-                score: habitScore,
-                scheduledDayCount: scheduledDays.count,
+                dayContributions: contributions,
+                overallScoreWithoutHabit: scheduledDays.isEmpty ? nil : scoreWithoutHabit,
                 overallScoreImpact: impact
             )
         }
 
         return HabitConsistencySummary(
             days: days,
+            dayStamps: includedStamps.sorted(),
             categoryScores: categoryScores,
             habitImpacts: habitImpacts
         )
@@ -203,19 +263,19 @@ struct HabitConsistencySummary: Hashable, Sendable {
                 }
             }
 
-            let dailyScores = progressByDay.values.compactMap { progress -> Double? in
-                guard !progress.isEmpty else { return nil }
-                return progress.reduce(0, +) / Double(progress.count)
+            let dailyScores = progressByDay.keys.sorted().map { stamp in
+                let progress = progressByDay[stamp, default: []]
+                return HabitConsistencyCategoryDayScore(
+                    stamp: stamp,
+                    progress: progress.reduce(0, +) / Double(progress.count),
+                    habitCount: progress.count
+                )
             }
-            let score = dailyScores.isEmpty
-                ? nil
-                : Int((100 * dailyScores.reduce(0, +) / Double(dailyScores.count)).rounded())
 
             return HabitConsistencyCategoryScore(
                 category: category,
-                score: score,
                 habitCount: assignedHabits.count,
-                scheduledDayCount: dailyScores.count
+                dailyScores: dailyScores
             )
         }
 
@@ -228,12 +288,6 @@ struct HabitConsistencySummary: Hashable, Sendable {
         return Int((Double(scores.reduce(0, +)) / Double(scores.count)).rounded())
     }
 
-    private static func impactRank(_ impact: Int?) -> Int {
-        guard let impact else { return 3 }
-        if impact < 0 { return 0 }
-        if impact == 0 { return 1 }
-        return 2
-    }
 }
 
 enum TickTickTokenStore {
@@ -376,15 +430,29 @@ actor TickTickHabitService {
     }
 
     func checkIn(_ habit: TickTickHabit, complete: Bool) async throws -> Double {
+        // TickTick upserts an absolute value. The app's cached value may predate
+        // changes made on another device, so read today before adding a step.
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let stamp = Self.dateStamp(for: today)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
+        let payload = try await callTool("get_habit_checkins", arguments: [
+            "habit_ids": [habit.id],
+            "from_stamp": stamp,
+            "to_stamp": Self.dateStamp(for: tomorrow)
+        ])
+        let records = Self.parseCheckins(payload, habitIDs: [habit.id])[habit.id, default: []]
+            .filter { $0.stamp == stamp }
+        let currentValue = records.map(\.value).max() ?? 0
         let value = complete
-            ? max(habit.currentValue, habit.goal)
-            : habit.currentValue + max(0.01, habit.step)
+            ? max(currentValue, habit.goal)
+            : currentValue + max(0.01, habit.step)
         _ = try await callTool(
             "upsert_habit_checkins",
             arguments: [
                 "habit_id": habit.id,
                 "checkin_data": [
-                    "stamp": Self.dateStamp(for: Date()),
+                    "stamp": stamp,
                     "value": value,
                     "goal": habit.goal
                 ]
