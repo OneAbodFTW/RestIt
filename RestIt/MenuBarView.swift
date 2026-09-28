@@ -410,6 +410,7 @@ private struct HabitImpactPopover: View {
         }
         .font(.caption)
         .frame(width: 440, height: 560)
+        .disclosureGroupStyle(DetailsDisclosureStyle())
     }
 }
 

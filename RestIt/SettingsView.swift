@@ -49,6 +49,7 @@ struct SettingsView: View {
         }
         .frame(width: 620, height: 560)
         .tint(Color.accentColor)
+        .disclosureGroupStyle(DetailsDisclosureStyle())
         .navigationTitle("RestIt Settings")
     }
 

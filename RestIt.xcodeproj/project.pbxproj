@@ -17,6 +17,7 @@
 		A10000000000000000000009 /* TickTickHabitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* TickTickHabitService.swift */; };
 		A10000000000000000000010 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* SettingsWindowController.swift */; };
 		A10000000000000000000011 /* HabitHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* HabitHistoryView.swift */; };
+		A10000000000000000000012 /* DetailsDisclosureStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* DetailsDisclosureStyle.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,7 @@
 		A20000000000000000000010 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* RestIt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RestIt.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000011 /* HabitHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitHistoryView.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* DetailsDisclosureStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailsDisclosureStyle.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,6 +67,7 @@
 				A20000000000000000000009 /* TickTickHabitService.swift */,
 				A20000000000000000000010 /* SettingsWindowController.swift */,
 				A20000000000000000000011 /* HabitHistoryView.swift */,
+				A20000000000000000000012 /* DetailsDisclosureStyle.swift */,
 			);
 			path = RestIt;
 			sourceTree = "<group>";
@@ -158,6 +161,7 @@
 				A10000000000000000000009 /* TickTickHabitService.swift in Sources */,
 				A10000000000000000000010 /* SettingsWindowController.swift in Sources */,
 				A10000000000000000000011 /* HabitHistoryView.swift in Sources */,
+				A10000000000000000000012 /* DetailsDisclosureStyle.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
