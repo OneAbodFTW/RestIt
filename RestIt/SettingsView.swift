@@ -318,6 +318,12 @@ struct SettingsView: View {
 
         return Form {
             Section {
+                HabitsNeedingAttentionView(summary: reminders.habitsNeedingAttention)
+            }
+            Section {
+                HabitWeeklyHistoryView(snapshots: reminders.weeklySnapshots)
+            }
+            Section {
                 HabitConsistencyScoreCalculation(summary: summary)
             } header: {
                 Label("7-day scores", systemImage: "gauge.with.dots.needle.67percent")

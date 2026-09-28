@@ -16,6 +16,7 @@
 		A10000000000000000000008 /* AudioCuePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* AudioCuePlayer.swift */; };
 		A10000000000000000000009 /* TickTickHabitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* TickTickHabitService.swift */; };
 		A10000000000000000000010 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* SettingsWindowController.swift */; };
+		A10000000000000000000011 /* HabitHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* HabitHistoryView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +30,7 @@
 		A20000000000000000000009 /* TickTickHabitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TickTickHabitService.swift; sourceTree = "<group>"; };
 		A20000000000000000000010 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* RestIt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RestIt.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000011 /* HabitHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitHistoryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,6 +64,7 @@
 				A20000000000000000000008 /* AudioCuePlayer.swift */,
 				A20000000000000000000009 /* TickTickHabitService.swift */,
 				A20000000000000000000010 /* SettingsWindowController.swift */,
+				A20000000000000000000011 /* HabitHistoryView.swift */,
 			);
 			path = RestIt;
 			sourceTree = "<group>";
@@ -154,6 +157,7 @@
 				A10000000000000000000008 /* AudioCuePlayer.swift in Sources */,
 				A10000000000000000000009 /* TickTickHabitService.swift in Sources */,
 				A10000000000000000000010 /* SettingsWindowController.swift in Sources */,
+				A10000000000000000000011 /* HabitHistoryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

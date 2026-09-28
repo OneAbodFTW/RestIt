@@ -35,8 +35,8 @@ days off are excluded. Habits with the lowest weekly consistency appear first. W
 and the effect of leaving a habit out are available in expandable details. Fractional point values are shares of the 100-point score,
 not fractional day counts.
 
-Use **Refresh all TickTick habits** at the top of the menu or at the bottom of any Settings tab to refetch every habit and the last 7 days
-of check-ins. Today's progress and weekly consistency update together, with loading, success, and error feedback beside the control.
+Use **Refresh all TickTick habits** at the top of the menu or at the bottom of any Settings tab to refetch every habit and 91 days
+of check-ins. Today's progress, the rolling 7-day score, and weekly snapshots update together, with loading, success, and error feedback beside the control.
 
 To connect:
 
@@ -47,6 +47,23 @@ To connect:
 
 The token is stored in macOS Keychain, not UserDefaults or the project files.
 TickTick remains responsible for habit goals, schedules, and reminder times.
+
+## Habit insights and weekly snapshots
+
+Open **Habit insights & weekly history** in the menu, or **Settings → Consistency**.
+
+- **Habits needing attention** ranks the last 7 completed days, excluding today's unfinished goals. Switch between lowest consistency and biggest score gap. Each habit shows missed goals, days with no progress, and partial days. The score gap is the weighted points left unearned, not the leave-one-habit-out comparison.
+- **Weekly score history** uses Monday–Sunday weeks. Choose Overall, Religious, or Self-care, then select a graph bar or use **Inspect week** to see the score and every habit's saved daily breakdown.
+- The graph shows the latest 13 saved weeks; the week picker retains older snapshots. The current week includes today and is marked **Week to date**. Missing scores stay missing rather than becoming zero.
+- Initial history reconstructs up to 12 completed weeks from TickTick check-ins using the goals, schedules, and categories available at capture time. Historical configuration changes and deleted habits cannot be recovered; these weeks are labeled **Reconstructed**.
+- Completed snapshots are saved locally in UserDefaults and stay fixed across refreshes, recategorization, and restarts. An open week is updated on refresh and finalized on the first successful refresh after Sunday. If the app is absent beyond the 91-day fetch window, an unfinished older snapshot remains explicitly incomplete. Weeks with no scored data are not invented. Snapshots are retained when disconnecting TickTick.
+
+Run snapshot checks with:
+
+```sh
+swiftc RestIt/TickTickHabitService.swift Scripts/CheckWeeklyHistory.swift -o /tmp/restit-history-check
+/tmp/restit-history-check
+```
 
 ## How consistency is calculated
 

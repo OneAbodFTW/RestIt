@@ -150,7 +150,7 @@ struct MenuBarView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "scope")
-                        Text("Weekly consistency details")
+                        Text("Habit insights & weekly history")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.caption2.weight(.semibold))
@@ -318,7 +318,7 @@ struct TickTickRefreshControls: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(!reminders.isTickTickConnected || reminders.isTickTickSyncing || !reminders.checkingHabitIDs.isEmpty)
-            .help("Refetch all TickTick habits and the last 7 days of check-ins, updating today’s progress and weekly consistency.")
+            .help("Refetch all TickTick habits and 13 weeks of check-ins, updating current progress and saving weekly snapshots.")
 
             if reminders.isTickTickSyncing {
                 Text("Fetching habits and the last 7 days of check-ins…")
@@ -376,11 +376,16 @@ private struct ConsistencyRow: View {
 }
 
 private struct HabitImpactPopover: View {
+    @EnvironmentObject private var reminders: ReminderManager
     let summary: HabitConsistencySummary
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                HabitsNeedingAttentionView(summary: reminders.habitsNeedingAttention)
+                Divider()
+                HabitWeeklyHistoryView(snapshots: reminders.weeklySnapshots)
+                Divider()
                 HabitConsistencyScoreCalculation(summary: summary)
 
                 Divider()

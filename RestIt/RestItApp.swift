@@ -60,6 +60,8 @@ struct RestItApp: App {
             "connected": manager.isTickTickConnected,
             "habitCount": manager.tickTickHabits.count,
             "historyDays": HabitConsistencySummary.defaultDays,
+            "fetchedHistoryDays": HabitWeekSnapshot.historyDays,
+            "weeklySnapshotCount": manager.weeklySnapshots.count,
             "allRecordWindowsValid": validWindow,
             "dataUpdates": dataUpdates,
             "loadingStates": loadingStates,

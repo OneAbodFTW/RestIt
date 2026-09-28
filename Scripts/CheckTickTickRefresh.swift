@@ -102,11 +102,11 @@ private final class RefreshFailureProtocol: URLProtocol {
                         let ids = Set(arguments["habit_ids"] as? [String] ?? [])
                         let fromStamp = arguments["from_stamp"] as? Int ?? 0
                         precondition(ids == ["water", "reading"] || ids == ["water"])
-                        precondition(fromStamp == stamp(offset: -6) || fromStamp == stamp(offset: 0))
+                        precondition(fromStamp == stamp(offset: -90) || fromStamp == stamp(offset: -6) || fromStamp == stamp(offset: 0))
                         precondition(arguments["to_stamp"] as? Int == stamp(offset: 1))
                         // Match TickTick's real grouped structuredContent.result response.
                         let groups: [[String: Any]] = ids.sorted().map { id in
-                            let checkins: [[String: Any]] = (-6...0).compactMap { offset in
+                            let checkins: [[String: Any]] = (-90...0).compactMap { offset in
                                 guard stamp(offset: offset) >= fromStamp else { return nil }
                                 if id == "water" && offset == 0 && mode == .emptyToday { return nil }
                                 var value: Double = id == "water" ? 4 : 1
@@ -211,6 +211,12 @@ struct CheckTickTickRefresh {
         }
         try require(!manager.tickTickStatusIsError, "Initial fetch failed: \(manager.tickTickStatusMessage ?? "unknown error")")
         try require(manager.habitConsistencySummary.overallScore == 97, "Initial fixture score is wrong.")
+        try require(manager.weeklySnapshots.count == 13, "Historical weeks were not loaded.")
+        try require(manager.habitsNeedingAttention.overallScore == 100, "Today's unfinished goals count as missed.")
+        let savedWeeks = manager.weeklySnapshots.filter(\.isFinal)
+        let persisted = try JSONDecoder().decode([HabitWeekSnapshot].self,
+            from: defaults.data(forKey: "habitWeeklySnapshots.v1")!)
+        try require(persisted == manager.weeklySnapshots, "Snapshots were not saved with habit details.")
         let staleWater = manager.tickTickHabits.first { $0.id == "water" }!
         print("Initial fixture fetch and score passed.")
         fflush(stdout)
@@ -249,12 +255,15 @@ struct CheckTickTickRefresh {
                     "Refresh retained an old historical check-in.")
         print("PASS historical corrections: past-day progress and the weekly score follow the source records.")
 
+        try require(manager.weeklySnapshots.filter(\.isFinal) == savedWeeks, "Refresh changed a frozen week.")
+        let previousSnapshots = manager.weeklySnapshots
         let previousHabits = manager.tickTickHabits
         let previousSummary = manager.habitConsistencySummary
         for (mode, label) in [(RefreshFailureProtocol.Mode.offline, "offline"), (.unauthorized, "expired token"), (.malformed, "malformed response")] {
             RefreshFailureProtocol.configure(mode)
             loadingStates = []
             await manager.syncTickTickHabits()
+            try require(manager.weeklySnapshots == previousSnapshots, "Failure changed saved history.")
             try require(RefreshFailureProtocol.count > 0, "The \(label) failure was not intercepted.")
             try require(manager.tickTickStatusIsError && manager.tickTickStatusMessage != nil, "The \(label) failure was not reported.")
             try require(loadingStates == [true, false], "The \(label) failure left the refresh control busy.")

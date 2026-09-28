@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-enum HabitConsistencyCategory: String, CaseIterable, Identifiable, Sendable {
+enum HabitConsistencyCategory: String, CaseIterable, Identifiable, Sendable, Codable {
     case religious
     case selfCare
 
@@ -68,13 +68,13 @@ struct TickTickHabit: Identifiable, Hashable, Sendable {
     }
 }
 
-struct HabitConsistencyCategoryDayScore: Hashable, Sendable {
+struct HabitConsistencyCategoryDayScore: Hashable, Sendable, Codable {
     let stamp: Int
     let progress: Double
     let habitCount: Int
 }
 
-struct HabitConsistencyCategoryScore: Identifiable, Hashable, Sendable {
+struct HabitConsistencyCategoryScore: Identifiable, Hashable, Sendable, Codable {
     let category: HabitConsistencyCategory
     let habitCount: Int
     let dailyScores: [HabitConsistencyCategoryDayScore]
@@ -90,7 +90,7 @@ struct HabitConsistencyCategoryScore: Identifiable, Hashable, Sendable {
     var score: Int? { unroundedScore.map { Int($0.rounded()) } }
 }
 
-struct HabitConsistencyDayContribution: Identifiable, Hashable, Sendable {
+struct HabitConsistencyDayContribution: Identifiable, Hashable, Sendable, Codable {
     let stamp: Int
     let progress: Double
     let scheduledHabitCount: Int
@@ -109,7 +109,7 @@ struct HabitConsistencyDayContribution: Identifiable, Hashable, Sendable {
     var possibleOverallPoints: Double { possibleCategoryPoints / Double(scoredCategoryCount) }
 }
 
-struct HabitConsistencyHabitImpact: Identifiable, Hashable, Sendable {
+struct HabitConsistencyHabitImpact: Identifiable, Hashable, Sendable, Codable {
     let habitID: String
     let habitName: String
     let category: HabitConsistencyCategory
@@ -129,6 +129,12 @@ struct HabitConsistencyHabitImpact: Identifiable, Hashable, Sendable {
         return Int((100 * progressTotal / Double(scheduledDayCount)).rounded())
     }
 
+    var missedGoalCount: Int { zeroProgressDayCount + partialDayCount }
+
+    var unearnedPoints: Double {
+        max(0, (possibleOverallPoints ?? 0) - (overallPoints ?? 0))
+    }
+
     var overallPoints: Double? {
         guard scheduledDayCount > 0 else { return nil }
         return dayContributions.map(\.overallPoints).reduce(0, +)
@@ -140,7 +146,7 @@ struct HabitConsistencyHabitImpact: Identifiable, Hashable, Sendable {
     }
 }
 
-struct HabitConsistencySummary: Hashable, Sendable {
+struct HabitConsistencySummary: Hashable, Sendable, Codable {
     static let defaultDays = 7
 
     let days: Int
@@ -288,6 +294,57 @@ struct HabitConsistencySummary: Hashable, Sendable {
         return Int((Double(scores.reduce(0, +)) / Double(scores.count)).rounded())
     }
 
+}
+
+/// A captured calendar week. Finished snapshots are immutable, including their
+/// category assignments, habit names and daily contributions.
+struct HabitWeekSnapshot: Identifiable, Hashable, Codable, Sendable {
+    static let historyDays = 91 // Twelve complete weeks plus the current week.
+    let startStamp: Int
+    let startDate: Date
+    let endDate: Date // Exclusive boundary.
+    let capturedAt: Date
+    let isFinal: Bool
+    let isReconstructed: Bool
+    let summary: HabitConsistencySummary
+
+    var id: Int { startStamp }
+
+    static func updating(
+        _ saved: [HabitWeekSnapshot], habits: [TickTickHabit],
+        assignments: [String: HabitConsistencyCategory],
+        now: Date = Date(), calendar: Calendar = .current
+    ) -> [HabitWeekSnapshot] {
+        let today = calendar.startOfDay(for: now)
+        let offset = (calendar.component(.weekday, from: today) + 5) % 7
+        guard let monday = calendar.date(byAdding: .day, value: -offset, to: today) else { return saved }
+        var result = Dictionary(saved.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let scoredHabits = habits.filter { assignments[$0.id] != nil }
+        for weeksAgo in (0...12).reversed() {
+            guard let start = calendar.date(byAdding: .day, value: -7 * weeksAgo, to: monday),
+                  let end = calendar.date(byAdding: .day, value: 7, to: start),
+                  let lastDay = calendar.date(byAdding: .day, value: -1, to: end) else { continue }
+            let parts = calendar.dateComponents([.year, .month, .day], from: start)
+            let stamp = parts.year! * 10_000 + parts.month! * 100 + parts.day!
+            if result[stamp]?.isFinal == true { continue }
+            let final = end <= today
+            let through = final ? lastDay : today
+            let dayCount = (calendar.dateComponents([.day], from: start, to: through).day ?? 0) + 1
+            let summary = HabitConsistencySummary.calculate(
+                habits: habits, assignments: assignments, days: dayCount, now: through, calendar: calendar
+            )
+            // Never freeze a truncated fetch or a week with no scored data.
+            guard !scoredHabits.isEmpty, scoredHabits.allSatisfy({ habit in
+                Set(summary.dayStamps).isSubset(of: Set(habit.recentDays.map(\.stamp)))
+            }), summary.overallScore != nil else { continue }
+            result[stamp] = HabitWeekSnapshot(
+                startStamp: stamp, startDate: start, endDate: end, capturedAt: now,
+                isFinal: final, isReconstructed: result[stamp]?.isReconstructed ?? final,
+                summary: summary
+            )
+        }
+        return result.values.sorted { $0.startStamp < $1.startStamp }
+    }
 }
 
 enum TickTickTokenStore {

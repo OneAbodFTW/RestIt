@@ -62,6 +62,10 @@ final class ReminderManager: ObservableObject {
         }
     }
 
+    @Published private(set) var weeklySnapshots: [HabitWeekSnapshot] = []
+    private var historyHabits: [TickTickHabit] = []
+    private static let snapshotsKey = "habitWeeklySnapshots.v1"
+
     @Published private(set) var now = Date()
     @Published private(set) var nextEyeBreak = Date()
     @Published private(set) var isEyeBreakActive = false
@@ -126,6 +130,11 @@ final class ReminderManager: ObservableObject {
         defaults.removeObject(forKey: DefaultsKey.selectedEyeDropsHabitID)
         isTickTickConnected = ((try? tickTickTokenLoader()) ?? nil) != nil
 
+        if let data = defaults.data(forKey: Self.snapshotsKey),
+           let saved = try? JSONDecoder().decode([HabitWeekSnapshot].self, from: data) {
+            weeklySnapshots = saved
+        }
+
         let start = Date()
         nextEyeBreak = start.addingTimeInterval(TimeInterval(eyeIntervalMinutes * 60))
         restoreDailyStats(at: start)
@@ -178,6 +187,14 @@ final class ReminderManager: ObservableObject {
         )
     }
 
+    /// Only completed calendar days count as missed goals in the attention list.
+    var habitsNeedingAttention: HabitConsistencySummary {
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+        return HabitConsistencySummary.calculate(
+            habits: historyHabits, assignments: habitCategoryAssignments, now: yesterday
+        )
+    }
+
     func skipNextEyeBreak() {
         guard !isEyeBreakActive else { return }
         nextEyeBreak = Date().addingTimeInterval(eyeInterval)
@@ -198,7 +215,7 @@ final class ReminderManager: ObservableObject {
         isTickTickSyncing = true
         defer { isTickTickSyncing = false }
         do {
-            let habits = try await TickTickHabitService(token: cleanToken).fetchHabits()
+            let habits = try await TickTickHabitService(token: cleanToken).fetchHabits(historyDays: HabitWeekSnapshot.historyDays)
             try TickTickTokenStore.save(cleanToken)
             isTickTickConnected = true
             applyTickTickHabits(habits)
@@ -214,6 +231,7 @@ final class ReminderManager: ObservableObject {
             try TickTickTokenStore.delete()
             isTickTickConnected = false
             tickTickHabits = []
+            historyHabits = []
             checkingHabitIDs = []
             setTickTickStatus("Disconnected from TickTick.", isError: false)
         } catch {
@@ -233,11 +251,11 @@ final class ReminderManager: ObservableObject {
         lastTickTickSyncDate = Date()
         defer { isTickTickSyncing = false }
         do {
-            let habits = try await TickTickHabitService(token: token).fetchHabits()
+            let habits = try await TickTickHabitService(token: token).fetchHabits(historyDays: HabitWeekSnapshot.historyDays)
             isTickTickConnected = true
             applyTickTickHabits(habits)
             if showSuccess {
-                setTickTickStatus("Refreshed \(habits.count) habit\(habits.count == 1 ? "" : "s") and the last \(HabitConsistencySummary.defaultDays) days of check-ins.", isError: false)
+                setTickTickStatus("Refreshed \(habits.count) habit\(habits.count == 1 ? "" : "s") and weekly history.", isError: false)
             }
         } catch {
             setTickTickStatus(error.localizedDescription, isError: true)
@@ -274,6 +292,7 @@ final class ReminderManager: ObservableObject {
         } else {
             habitCategoryAssignments.removeValue(forKey: habit.id)
         }
+        saveWeeklySnapshots()
     }
 
     func checkEyeDropsHabit(_ habit: TickTickHabit) {
@@ -376,7 +395,25 @@ final class ReminderManager: ObservableObject {
     }
 
     private func applyTickTickHabits(_ habits: [TickTickHabit]) {
-        tickTickHabits = habits
+        historyHabits = habits
+        // Keep the existing rolling dashboard and live-refresh contract at seven days.
+        let stamps = Set(HabitConsistencySummary.calculate(habits: [], assignments: [:]).dayStamps)
+        tickTickHabits = habits.map { habit in
+            var current = habit
+            current.recentDays = habit.recentDays.filter { stamps.contains($0.stamp) }
+            return current
+        }
+        saveWeeklySnapshots()
+    }
+
+    private func saveWeeklySnapshots() {
+        guard !historyHabits.isEmpty else { return }
+        let updated = HabitWeekSnapshot.updating(
+            weeklySnapshots, habits: historyHabits, assignments: habitCategoryAssignments
+        )
+        guard let data = try? JSONEncoder().encode(updated) else { return }
+        defaults.set(data, forKey: Self.snapshotsKey)
+        weeklySnapshots = updated
     }
 
     private func setTickTickStatus(_ message: String, isError: Bool) {
